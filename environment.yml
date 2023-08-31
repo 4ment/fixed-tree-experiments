@@ -1,0 +1,5 @@
+name: fixed-tree
+dependencies:
+  - click
+  - dendropy
+  - nextflow
