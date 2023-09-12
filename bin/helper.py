@@ -40,16 +40,17 @@ def beast(input, output, tree):
     # remove operators that modify the topology
     operators = ("subtreeSlide", "narrowExchange", "wideExchange", "wilsonBalding")
 
+    operators_elem = root.find("operators")
     for operator_str in operators:
-        for operator in root.findall(operator_str):
-            root.remove(operator)
+        for operator in operators_elem.findall(operator_str):
+            operators_elem.remove(operator)
 
     # fix topology
     simulator = root.find("coalescentSimulator")
     if simulator is None:
         simulator = root.find("coalescentTree")
 
-    index = root.getchildren().index(simulator)
+    index = list(root).index(simulator)
     root.remove(simulator)
 
     all_taxa = {}

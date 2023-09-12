@@ -30,3 +30,8 @@ export NXF_CONDA_CACHEDIR=$HOME/miniconda3/envs
 ```
 nextflow run main.nf --datasets ssstree_datasets
 ```
+
+## Generate figures
+```
+Rscript -e 'rmarkdown::render("plot.Rmd")'
+```

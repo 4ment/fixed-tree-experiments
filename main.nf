@@ -79,13 +79,6 @@ process RUN_BEAST{
     tuple val(dataset), path(xml_file)
   output:
     tuple val(dataset), path("*.log"), path("*.trees")
-  
-  script:
-  if( dataset == 'rabies_via23' )
-  """
-  beast-1.10.5 ${xml_file}
-  """
-  else
   """
   beast ${xml_file}
   """
