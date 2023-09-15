@@ -4,7 +4,6 @@ import re
 import xml.etree.ElementTree as ET
 
 import click
-from dendropy import Tree
 
 
 def rename(id_):
@@ -12,10 +11,12 @@ def rename(id_):
     # zikv_gru19: one sequence has \ in its name
     # rabies_via23: some sequence names contain @
     # fluPb2_wor14: *
+    # fluH3L_bed15: +
+    # wnv_del20: '
     # if there is space inside the name, iqtree truncates the string up to the space
     if " " in id_:
         id_ = id_[0 : id_.index(" ")]
-    return id_.replace("@", "_").replace("\\", "_").replace("*", "_").replace("?", "_")
+    return re.sub(r"[@\\\*\?\+']", "_", id_)
 
 
 @click.command(help="Create BEAST file with fixed topology")
@@ -60,18 +61,10 @@ def beast(input, output, tree):
                 id_ = taxon.get("id")
                 all_taxa[taxon.get("id")] = rename(id_)
 
-    phylo = Tree.get(
-        data=newick, schema="newick", preserve_underscores=True, rooting="force-rooted"
-    )
-    phylo.resolve_polytomies()
-    newick = phylo.as_string(schema="newick")
-    # p = re.compile(r":[^\),]+([\),])")
-    # newick = p.sub(r"\1", newick)
-    newick = newick.replace("'", "")
-    newick = newick[newick.index("(") :]
-
     for taxon, renamed in all_taxa.items():
         if taxon != renamed:
+            if " " in taxon:
+                taxon = '"' + taxon + '"'
             newick = newick.replace(renamed, taxon)
     newick_element = ET.Element("newick", id="startingTree")
     newick_element.text = newick

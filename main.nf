@@ -73,7 +73,6 @@ process CREATE_BEAST_XML{
 
 process RUN_BEAST{
   publishDir "$params.results/datasets/${dataset}/fixed", mode: 'copy'
-  errorStrategy 'ignore'
 
   input:
     tuple val(dataset), path(xml_file)
