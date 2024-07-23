@@ -6,7 +6,42 @@ import xml.etree.ElementTree as ET
 import click
 
 
-def rename(id_):
+def convert(fp):
+    dic = {}
+    for line in fp:
+        line = line.strip()
+        if line.lower().endswith("translate"):
+            for line in fp:
+                line = line.strip()
+                if line == ";":
+                    break
+                else:
+                    line2 = line.rstrip(",")
+                index, name = re.split(r"\s+", line2, maxsplit=1)
+                # dic[int(index)] = name
+                dic[index] = name
+        elif line.startswith("tree"):
+            start = line.index("(")
+            nexus = line[start:]
+            # remove comments such as [%height=1]
+            nexus = re.sub(r"\[[^\]]+\]", "", nexus)
+            # replace index with name
+            if len(dic) > 0:
+                newick_list = list(filter(None, re.split(r"([,\(\):;])", nexus)))
+                for idx, token in enumerate(newick_list):
+                    if token not in ";:(,)" and newick_list[idx - 1] != ":":
+                        newick_list[idx] = dic[token]
+                nexus = "".join(newick_list)
+                # for index in sorted(dic.keys(), reverse=True):
+                #     name_escaped = re.escape(dic[index])
+                #     print(rf"([,\(]){index}:", r"\1" + name_escaped + ":")
+                #     nexus = re.sub(r"([,\(])" + f"{index}:", r"\1" +dic[index] + ":", nexus, count=1)
+                #     print(nexus)
+                #     # nexus = nexus.replace(f"{index}:", f"{dic[index]}:")
+            return nexus
+
+
+def renamer(id_):
     # rename sequences because iqtree changes some symbols
     # zikv_gru19: one sequence has \ in its name
     # rabies_via23: some sequence names contain @
@@ -28,15 +63,36 @@ def rename(id_):
     help="BEAST XML file with fixed topology",
 )
 @click.option("--tree", type=click.UNPROCESSED, required=True, help="tree file")
-def beast(input, output, tree):
+@click.option("--rename", default=False)
+def beast(input, output, tree, rename):
     with open(tree, "r") as fp:
         for line in fp:
-            if line.startswith("tree 1 = "):
-                newick = line.replace("tree 1 = ", "").strip()
-    newick = re.sub(r'\[&date="\d+\.?\d*"]', "", newick)
+            if line.startswith("#NEXUS"):
+                newick = convert(fp)
+            else:
+                newick = line.strip()
+            break
 
     tree = ET.parse(input)
     root = tree.getroot()
+
+    # divide chain length by 10
+    mcmc_elem = root.find("mcmc")
+    mcmc_elem.attrib[
+        "chainLength"
+    ] = f"{int(int(mcmc_elem.attrib['chainLength']) / 10)}"
+
+    logs_elem = mcmc_elem.findall("log")
+    logs_to_remove = ("sitellLog", "opsTopoLog")
+    for log_elem in logs_elem:
+        if log_elem.attrib["id"] in logs_to_remove:
+            mcmc_elem.remove(log_elem)
+
+    logCladeOperated = mcmc_elem.find("logCladeOperated")
+    if logCladeOperated is not None:
+        mcmc_elem.remove(logCladeOperated)
+
+    root.remove(root.find("siteLogLikelihood"))
 
     # remove operators that modify the topology
     operators = ("subtreeSlide", "narrowExchange", "wideExchange", "wilsonBalding")
@@ -54,18 +110,20 @@ def beast(input, output, tree):
     index = list(root).index(simulator)
     root.remove(simulator)
 
-    all_taxa = {}
-    for taxa in root.findall("taxa"):
-        for taxon in taxa:
-            if taxon.get("id") is not None:
-                id_ = taxon.get("id")
-                all_taxa[taxon.get("id")] = rename(id_)
+    if rename:
+        all_taxa = {}
+        for taxa in root.findall("taxa"):
+            for taxon in taxa:
+                if taxon.get("id") is not None:
+                    id_ = taxon.get("id")
+                    all_taxa[taxon.get("id")] = renamer(id_)
 
-    for taxon, renamed in all_taxa.items():
-        if taxon != renamed:
-            if " " in taxon:
-                taxon = '"' + taxon + '"'
-            newick = newick.replace(renamed, taxon)
+        for taxon, renamed in all_taxa.items():
+            if taxon != renamed:
+                if " " in taxon:
+                    taxon = '"' + taxon + '"'
+                newick = newick.replace(renamed, taxon)
+
     newick_element = ET.Element("newick", id="startingTree")
     newick_element.text = newick
     root.insert(index, newick_element)
@@ -86,9 +144,39 @@ def dates(input, output):
         fp.write(str(len(taxa)) + "\n")
         for taxon in taxa:
             id_ = taxon.get("id")
-            id_ = rename(id_)
+            id_ = renamer(id_)
             date = taxon.find("date").get("value")
             fp.write(f"{id_}\t{date}\n")
+
+
+@click.command(help="Exctract MAP tree in BEAST output")
+@click.option("--log", type=click.File("r"), help="log file containing posterior trace")
+@click.option("--trees", type=click.File("r"), help="log file containing trees")
+@click.option("--output", type=click.File("w"), default=click.get_text_stream("stdout"))
+def map(log, trees, output):
+    max_prob = -float("inf")
+    for line in log:
+        if line.startswith("#"):
+            continue
+        elif line.startswith("state"):
+            idx_posterior = line.split("\t").index("posterior")
+        else:
+            a = line.split("\t")
+            prob = float(float(a[idx_posterior].strip()))
+            s = a[0]
+            if int(s) % 10000 == 0 and prob > max_prob:
+                max_prob = prob
+                state = s
+    # print(state, max_prob)
+
+    for line in trees:
+        if line.startswith("tree"):
+            a = re.split(r"\s+", line)
+            s = a[1].split("_")[1]
+            if s == state:
+                output.write(line)
+        else:
+            output.write(line)
 
 
 @click.group(help="CLI tool to convert and generate files")
@@ -98,6 +186,7 @@ def cli():
 
 cli.add_command(beast)
 cli.add_command(dates)
+cli.add_command(map)
 
 if __name__ == "__main__":
     cli()
