@@ -37,8 +37,10 @@ process RUN_IQTREE {
     // path("ali.fasta.timetree.lsd.nwk")// branch=subst
 
   """
-  iqtree2 -s ${params.datasets}/${dataset}/ali.fasta -m GTR+G --prefix ali.fasta
-  SITES=\$(grep "^Input data" ali.fasta.iqtree|awk '{print \$6}')
+  helper.py rename --input ${params.datasets}/${dataset}/ali.fasta --output ali-renamed.fasta --dic_out dic.csv
+  iqtree2 -s ali-renamed.fasta -m GTR+G --prefix ali-renamed.fasta
+  helper.py rename --input ali-renamed.fasta.treefile --output ali.fasta.treefile --dic_in dic.csv --reverse
+  SITES=\$(grep "^Input data" ali-renamed.fasta.iqtree|awk '{print \$6}')
   """
 }
 
@@ -48,23 +50,48 @@ process RUN_LSD {
   publishDir "$params.results/datasets/${dataset}/lsd2", mode: 'copy'
 
   input:
-    tuple val(dataset),
-          val(tree_file),
-          val(seq_length),
-          val(date_file)
+    tuple val(dataset), path(tree_file),val(seq_length)
   output:
     tuple val(dataset), val("lsd2"), path("ali.fasta.lsd.date.nexus")
     env(RATE)
     path "ali.fasta.lsd.nwk", emit: lsd_tree_newick // branch=subst
     path "ali.fasta.lsd"
+    path "dates.txt"
 
   """
+  helper.py dates --input ${params.datasets}/${dataset}/run1.xml --output dates.txt
   lsd2 -i ${tree_file} \
-       -d ${date_file} \
+       -d dates.txt \
        -o ali.fasta.lsd \
        -s ${seq_length} \
        -r a
   RATE=\$(grep "^ rate" ali.fasta.lsd|awk '{print \$2}'|sed "s/,//")
+  """
+}
+
+process RUN_TREETIME {
+  label 'ultrafast'
+
+  publishDir "$params.results/datasets/${dataset}/treetime", mode: 'copy'
+
+  input:
+    tuple val(dataset),
+          path(tree_file)
+  output:
+    tuple val(dataset), val("treetime"), path("timetree.tree")
+    path "treetime/divergence_tree.nexus"
+    path "treetime/molecular_clock.txt"
+    path "treetime/sequence_evolution_model.txt"
+    path "treetime/divergence_tree.nexus"
+    path "treetime/timetree.nexus"
+    path "dates.csv"
+
+  """
+  helper.py rename --input ${params.datasets}/${dataset}/ali.fasta --output ali-renamed.fasta --dic_out dic.csv
+  helper.py rename --input ${tree_file} --output tree-renamed.tree --dic_in dic.csv
+  helper.py dates --input ${params.datasets}/${dataset}/run1.xml --output dates.csv --dic dic.csv
+  treetime --aln ali-renamed.fasta --tree tree-renamed.tree --dates dates.csv --outdir treetime
+  helper.py rename --input treetime/timetree.nexus --output timetree.tree --dic_in dic.csv --reverse
   """
 }
 
@@ -145,8 +172,9 @@ workflow {
   // }
   
   RUN_IQTREE(datasets) // in: dataset out: (dataset, tree, sites)
-  CREATE_DATE_FILE(datasets) //in: dataset out: (dataset, dates)
-  RUN_LSD(RUN_IQTREE.out.join(CREATE_DATE_FILE.out)) // in: dataset, tree, sites, dates out[0]: (dataset, lsd2, $tree_file)
+  RUN_LSD(RUN_IQTREE.out[0]) // in: dataset, tree, sites out[0]: ($dataset, lsd2, $tree_file)
+  RUN_TREETIME(RUN_IQTREE.out[0].map{it -> [it[0], it[1]]}) // in: dataset, tree out[0]: ($dataset, tree, $tree_file)
+  
   all = Channel.from("fluH3L_bed15", "lassaL_kli22", "wnv_del20", "sars2_lem21", "ebov_dud17",
   "ebov_mba21", "fluH1L_bed15", "fluPb2_wor14", "fluVicL_bed15", "hiv_far14", "mumps_mon21", "rabies_via23", "sars2_can20",
   "sars2_pek22", "zikv_gru19")
@@ -167,7 +195,7 @@ workflow {
     [it, "mcc", file("${params.datasets}/${it}/run01_burninNgen200000000_MCC.tree")]
   }
 
-  ch_all = ch_mcc.concat(PARSE_MAP.out[0], RUN_LSD.out[0])
+  ch_all = ch_mcc.concat(PARSE_MAP.out[0], RUN_LSD.out[0], RUN_TREETIME.out[0])
   CREATE_BEAST_XML(ch_all) // in: ($dataset, $type, $tree) out: ($dataset, $type, run01-fixed.xml)
 
   // xml_files = files("${baseDir}/results/datasets/**/fixed/run1-fixed.xml")

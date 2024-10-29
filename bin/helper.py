@@ -88,6 +88,11 @@ def beast(input, output, tree, rename):
         if log_elem.attrib["id"] in logs_to_remove:
             mcmc_elem.remove(log_elem)
 
+    logtrees_elem = mcmc_elem.findall("logTree")
+    for logtree_elem in logtrees_elem:
+        if logtree_elem.attrib["id"] == "topoFileLog":
+            mcmc_elem.remove(logtree_elem)
+
     logCladeOperated = mcmc_elem.find("logCladeOperated")
     if logCladeOperated is not None:
         mcmc_elem.remove(logCladeOperated)
@@ -131,22 +136,50 @@ def beast(input, output, tree, rename):
     tree.write(output)
 
 
-@click.command(help="Create date file for LSD")
+@click.command(help="Create date file for LSD or treetime")
 @click.option("--input", type=click.UNPROCESSED, required=True, help="BEAST XML file")
 @click.option(
     "--output", type=click.UNPROCESSED, required=True, help="file containing dates"
 )
-def dates(input, output):
+@click.option(
+    "--dic", type=click.UNPROCESSED, required=False, help="file renaming sequences"
+)
+def dates(input, output, dic):
     tree = ET.parse(input)
     root = tree.getroot()
     taxa = root.find("taxa")
+    old2new = None
+    if dic is not None:
+        old2new = {}
+        with open(dic, "r") as fp:
+            for line in fp:
+                new_name, name = line.strip().split(",")
+                old2new[name] = new_name
+    # else:
+    #     for taxon in taxa:
+    #         names.append(taxon.get("id"))
+    #         dates[taxon.get("id")] = taxon.find("date").get("value")
+    #     counter = 0
+    #     for name in sorted(names):
+    #         old2new[name] = f"A{counter}A"
+    #         counter += 1
+
     with open(output, "w") as fp:
-        fp.write(str(len(taxa)) + "\n")
+        if output.endswith("csv"):
+            fp.write("name, date\n")
+        else:
+            fp.write(str(len(taxa)) + "\n")
         for taxon in taxa:
             id_ = taxon.get("id")
-            id_ = renamer(id_)
+            if old2new is not None:
+                id_ = old2new[id_]
+
+            # id_ = renamer(id_)
             date = taxon.find("date").get("value")
-            fp.write(f"{id_}\t{date}\n")
+            if output.endswith("csv"):
+                fp.write(f"{id_},{date}\n")
+            else:
+                fp.write(f"{id_}\t{date}\n")
 
 
 @click.command(help="Exctract MAP tree in BEAST output")
@@ -179,6 +212,84 @@ def map(log, trees, output):
             output.write(line)
 
 
+@click.command(help="Rename fasta or tree files")
+@click.option("--input", type=click.UNPROCESSED, required=True, help="input file")
+@click.option(
+    "--output",
+    type=click.UNPROCESSED,
+    required=True,
+    help="output file",
+)
+@click.option("--dic_in", type=click.File("r"), help="file for dictionary")
+@click.option("--dic_out", type=click.File("w"), help="file for dictionary")
+@click.option("--reverse", is_flag=True)
+def rename(input, output, dic_in, dic_out, reverse):
+    dictionary = None
+    if dic_in:
+        dictionary = {}
+        for line in dic_in:
+            if "," in line:
+                new_name, name = line.strip().split(",")
+                if reverse:
+                    dictionary[new_name] = name
+                else:
+                    dictionary[name] = new_name
+    # print(dictionary)
+
+    is_seq = False
+    with open(input, "r") as fp:
+        for line in fp:
+            if line.startswith(">"):
+                is_seq = True
+            break
+
+    if is_seq:
+        # rename fasta file sequences
+        counter = 0
+        names = []
+        dic = {}
+        with open(input, "r") as fp:
+            for line in fp:
+                if line.startswith(">"):
+                    names.append(line[1:].strip())
+
+        for name in sorted(names):
+            dic[name] = f"A{counter}A"
+            dic_out.write(f"A{counter}A,{name}\n")
+            counter += 1
+
+        with open(output, "w") as out:
+            with open(input, "r") as fp:
+                for line in fp:
+                    if line.startswith(">"):
+                        header = line[1:].strip()
+                        out.write(f">{dic[header]}\n")
+                    else:
+                        out.write(line)
+    else:
+        with open(input, "r") as fp:
+            for line in fp:
+                line = line.strip()
+                # Tree tree1 is for treetime (nexus file)
+                if line.startswith("(") or line.startswith("Tree tree1"):
+                    if line.startswith("Tree tree1"):
+                        start = line.index("(")
+                        line = line[start:]
+                    # remove comments such as [&height=1]
+                    line = re.sub(r"\[[^\]]+\]", "", line)
+                    newick_list = list(filter(None, re.split(r"([,\(\):;])", line)))
+                    for idx, token in enumerate(newick_list):
+                        if (
+                            token not in ";:(,)"
+                            and newick_list[idx - 1] != ":"
+                            and newick_list[idx - 1] != ")"
+                        ):
+                            newick_list[idx] = dictionary[token]
+
+        with open(output, "w") as fp:
+            fp.write("".join(newick_list))
+
+
 @click.group(help="CLI tool to convert and generate files")
 def cli():
     pass
@@ -187,6 +298,7 @@ def cli():
 cli.add_command(beast)
 cli.add_command(dates)
 cli.add_command(map)
+cli.add_command(rename)
 
 if __name__ == "__main__":
     cli()
