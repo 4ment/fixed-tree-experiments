@@ -1,0 +1,257 @@
+---
+title: "fixed tree: summariy"
+author: "Mathieu"
+date: '`r format(Sys.time(), "%d %B, %Y")`'
+output:
+  pdf_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(scales)
+```
+
+\newpage
+
+```{r}
+kld_base = function(x, y, ...) {
+  integrand = function(x, y, t) {
+    f.x =  approx(density(x)$x, density(x)$y, t)$y
+    f.y =  approx(density(y)$x, density(y)$y, t)$y
+    tmpRatio = f.x * (log2(f.x) - log2(f.y))
+    tmpRatio = ifelse(is.infinite(tmpRatio), 0, ifelse(is.na(tmpRatio), 0, tmpRatio))
+    return(tmpRatio)
+  }
+  return(integrate(
+    integrand,
+    0,
+    Inf,
+    x = x,
+    y = y,
+    stop.on.error = FALSE
+  )$value)
+}
+
+kl_l <- function(x, y) {
+  f.x <- approxfun(density(x, bw = "nrd0"))
+  f.y <- approxfun(density(y, bw = "nrd0"))
+  integrand <- function(z) {
+    return((log(f.x(z)) - log(f.y(z))) * f.x(z))
+  }
+  return(integrate(integrand, lower = 2, upper = 100))
+}
+```
+
+```{r eval=FALSE, include=FALSE}
+# ebov_dud17
+#c("cp1.kappa", "ig.kappa", "cp1.alpha", "ig.alpha", "cp1.mu", "ig.mu", "cp1.frequencies","ig.frequencies")
+#c("ucld.mean", "ucld.stdev", "meanRate")
+
+# ebov_mba21
+# c("cp12.kappa", "cp3.kappa", "cp12.alpha", "cp3.alpha", "cp12.mu", "cp3.mu", "cp12.frequencies", "cp3.frequencies")
+# c("ucld.mean", "ucld.stdev", "meanRate")
+
+# fluH1L_bed15
+# c("cp12.kappa", "cp3.kappa", "cp12.frequencies", "cp3.frequencies", "cp12.mu", "cp3.mu")
+# c("constant.popSize", "clock.rate")
+
+# fluH3L_bed15
+# c("cp12.kappa", "cp3.kappa", "cp12.frequencies", "cp3.frequencies", "cp12.mu", "cp3.mu")
+# c("constant.popSize", "clock.rate")
+
+# fluPb2_wor14
+# c("cp12.kappa", "cp3.kappa", "cp12.frequencies", "cp3.frequencies", "cp12.mu", "cp3.mu")
+# c(equine.rate","galliform1.rate","human1.rate","shorebird1.rate","swine1.rate","swine2.rate","swine3.rate")
+
+# fluVicL_bed15
+# c("cp12.kappa", "cp3.kappa", "cp12.frequencies", "cp3.frequencies", "cp12.mu", "cp3.mu")
+# c("ucld.mean", "ucld.stdev", "meanRate")
+
+# hiv_far14
+# c("gtr.rates", "frequencies", "alpha")
+# c("ucld.mean", "ucld.stdev", "meanRate")
+
+# lassaL_kli22
+# c("gtr.rates", "frequencies", "alpha")
+# c("ucld.mean", "ucld.stdev", "meanRate")
+
+# mumps_mon21
+# c("gtr.rates", "frequencies", "alpha")
+# c("clock.rate")
+
+# rabies_via23
+# c("cp12.gtr.rates", "cp3.gtr.rates", "nc.gtr.rates", "cp12.alpha", "cp3.alpha", "nc.alpha", "cp12.frequencies" "cp3.frequencies", "nc.frequencies", "cp12.mu", "cp3.mu", "nc.mu")
+# c("ucld.mean", "ucld.stdev", "meanRate")
+
+# sars2_can20
+# c("kappa", "frequencies", "alpha")
+# c("clock.rate")
+
+# sars2_lem21
+# c("kappa", "frequencies", "alpha")
+# c("clock.rate")
+
+# sars2_pek22
+# c("gtr.rates", "frequencies", "pInv")
+# c("clock.rate")
+
+# wnv_del20
+# c("gtr.rates", "frequencies", "alpha")
+# c("ucld.mean", "ucld.stdev", "meanRate")
+
+# zikv_gru19
+# c("cp1.kappa", "cp2.kappa", "cp3.kappa", "cp1.alpha", "cp2.alpha", "cp3.alpha", "cp1.mu", "cp2.mu", "cp3.mu", "cp1.frequencies", "cp2.frequencies", "cp3.frequencies"/>
+# c("ucld.mean", "ucld.stdev", "meanRate")
+```
+
+```{r}
+datasets = c("fluH3L_bed15", "lassaL_kli22", "wnv_del20", "sars2_lem21", "ebov_dud17",
+  "ebov_mba21", "fluH1L_bed15", "fluPb2_wor14", "fluVicL_bed15", "hiv_far14",
+  "mumps_mon21", "rabies_via23", "sars2_can20", "sars2_pek22", "zikv_gru19")
+all = NULL
+all_mean = NULL
+all_sky = NULL
+for (i in seq_along(datasets)) {
+  dataset = datasets[[i]]
+  load(paste0(dataset, ".RData"))
+  rate_name <- intersect(c("meanRate", "clock.rate", "avian.rate"), names(param))
+  param = param %>% mutate(!!"rate" := .[[rate_name[1]]])
+  
+  df = param %>% group_by(type) %>%
+    summarize(
+      rootHeightMean = mean(rootHeight),
+      rootHeightVar = var(rootHeight),
+      rateMean = mean(rate)
+    ) %>%
+    mutate(dataset = dataset)
+
+  all_mean = param %>% group_by(type) %>%
+    summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>%
+    pivot_longer(!type, names_to = "parameter", values_to = "value") %>%
+    mutate(dataset = dataset) %>%
+    bind_rows(all_mean)
+  
+  all = rbind(all, df)
+  #assign(paste0("param_", dataset), get("param"))
+  #assign(paste0("sky_", dataset), get("sky"))
+  #assign(paste0("lsd_", dataset), get("lsd"))
+  if (!is.null(sky)) {
+    prefixes <- names(sky)[1:length(sky) - 1]
+    m = sky %>% group_by(type) %>%
+      summarise(across(where(is.numeric), \(x) mean(x, na.rm = TRUE)))
+    uncons = m %>% filter(type == "unconstrained1") %>%
+      pivot_longer(cols = all_of(prefixes),
+                   names_to = "pop",
+                   values_to = "value")
+    cons = m %>% filter(type != "unconstrained1") %>%
+      pivot_longer(cols = all_of(prefixes),
+                   names_to = "pop",
+                   values_to = "value")
+    
+    df = cons %>% full_join(uncons, by = "pop") %>%
+      mutate(value = ((value.x - value.y) / value.y) ** 2) %>%
+      select(type.x, value) %>%
+      # RRMSE relative root mean squared error
+      group_by(type.x) %>% summarize(across(where(is.numeric), ~ sqrt(mean(.)))) %>%
+      rename(Method = type.x, RRMSE = value) %>%
+      select(Method, RRMSE) %>%
+      mutate(Dataset = dataset)
+    
+    all_sky = df %>% bind_rows(all_sky)
+  }
+}
+```
+
+```{r}
+uncons = all_mean %>% filter(type == "unconstrained1") %>% select(-type)
+cons = all_mean %>% filter(type != "unconstrained1")
+df = cons %>% full_join(uncons, by = c("dataset", "parameter")) %>%
+  mutate(value = (value.x - value.y) / value.y) %>%
+  select(type, parameter, dataset, value) %>%
+  rename(Method = type, Dataset = dataset) %>%
+  filter(parameter != "rate") %>%
+  mutate(
+    model = case_when(
+      parameter == "meanRate" |
+        parameter == "clock.rate" | str_detect(parameter, ".rate$") ~ "clock",
+      parameter == "rootHeight" |
+        parameter == "treeLength" | str_detect(parameter, "^tmrca") ~ "tree",
+      parameter == "constant.popSize" |
+        parameter == "skygrid.precision" ~ "coalescent",
+      str_detect(parameter, "gtr") |
+        str_detect(parameter, "mu") |
+        str_detect(parameter, "frequencies") |
+        str_detect(parameter, "kappa") ~ "subsmodel",
+      str_detect(parameter, "mu") |
+        str_detect(parameter, "alpha") | parameter == "pInv" ~ "sitemodel",
+      TRUE                            ~ "other"
+    )
+  )
+```
+
+# Substitution and site model parameters
+
+- Substitution model: kappa, gtr.rates, frequencies
+- Site model: alpha, pInv, mu
+
+```{r}
+df2 = df %>% filter(model %in% c("other", "subsmodel", "sitemodel"))
+ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
+  geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  theme(
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+```
+
+# Clock, coalescent, tree parameters/statistics
+
+- Coalescent: constant popSize, precision of GMRF
+- Tree: rootHeight, treeLength, tmrcas
+- Clock model: strict clock rate, meanRate (UCLN), *.rate of local clock
+
+```{r}
+df2 = df %>% filter(model %in% c("coalescent", "tree", "clock"))
+ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
+  geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  theme(
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+```
+
+# Skygrid population size parameters
+
+$RRMSE(\bf{\bar x}) = \sqrt{1/n \sum_i^n \left(\frac{\bar x_i - \bar x_i^{u}}{\bar x_i^{u}}\right)^2}$ where $\bar x_i^{u}$ is the $i^{th}$ mean population size parameter of the unconstrained run and $\bar x_i$ is the mean population size parameter for a constrained run.
+
+```{r}
+ggplot(all_sky, aes(y = RRMSE, col = Method, x = Dataset)) +
+  geom_jitter(width = 0.2, size = 1) +
+  theme(
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+```
