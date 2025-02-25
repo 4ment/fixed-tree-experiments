@@ -277,13 +277,11 @@ def rename(input, output, dic_in, dic_out, reverse):
                         line = line[start:]
                     # remove comments such as [&height=1]
                     line = re.sub(r"\[[^\]]+\]", "", line)
+                    # remove internal node names )NODE1:0.1 -> ):0.1
+                    line = re.sub(r"\)[^:]+:", "):", line)
                     newick_list = list(filter(None, re.split(r"([,\(\):;])", line)))
                     for idx, token in enumerate(newick_list):
-                        if (
-                            token not in ";:(,)"
-                            and newick_list[idx - 1] != ":"
-                            and newick_list[idx - 1] != ")"
-                        ):
+                        if token not in ";:(,)" and newick_list[idx - 1] != ":":  # :0.1
                             newick_list[idx] = dictionary[token]
 
         with open(output, "w") as fp:

@@ -6,19 +6,6 @@ params.datasets = "${baseDir}/ssstree_datasets"
 params.results = "results"
 
 
-process CREATE_DATE_FILE{
-  label 'ultrafast'
-
-  publishDir "$params.results/datasets/${dataset}/iqtree", mode: 'copy'
-
-  input: val(dataset)
-  output:
-   tuple val(dataset), path("dates.txt")
-  """
-  helper.py dates --input ${params.datasets}/${dataset}/run1.xml --output dates.txt
-  """
-}
-
 process RUN_IQTREE {
   publishDir "$params.results/datasets/${dataset}/iqtree", mode: 'copy'
 
@@ -152,10 +139,6 @@ process RUN_TREEANNOTATOR{
   """
 }
 
-def func(a){
-  m = a =~ /results\/datasets\/(\w+)\/fixed\/run1-fixed.xml/
-  return m[0][1]
-}
 def extract(path){
   m = path =~ /${params.datasets}\/(\w+)\/run01.xml/
   return m[0][1]
@@ -165,32 +148,18 @@ workflow {
   datasets = Channel.fromPath("${params.datasets}/**/run01.xml").map{
     it -> extract(it.toString())
   }
-  // xml_files = files("${baseDir}/ssstree_datasets/**/run1.xml")
-  // for(int i=0;i < xml_files.size; i++){
-  //   m = xml_files[i] =~ /ssstree_datasets\/(\w+)\/run1.xml/
-  //   xml_files[i] = m[0][1]
-  // }
   
-  RUN_IQTREE(datasets) // in: dataset out: (dataset, tree, sites)
-  RUN_LSD(RUN_IQTREE.out[0]) // in: dataset, tree, sites out[0]: ($dataset, lsd2, $tree_file)
-  RUN_TREETIME(RUN_IQTREE.out[0].map{it -> [it[0], it[1]]}) // in: dataset, tree out[0]: ($dataset, tree, $tree_file)
+  RUN_IQTREE(datasets) // in: dataset out: ($dataset, $tree_file, $sites)
+  RUN_LSD(RUN_IQTREE.out[0]) // in: $dataset, $tree_file, $sites out[0]: ($dataset, lsd2, $tree_file)
+  RUN_TREETIME(RUN_IQTREE.out[0].map{it -> [it[0], it[1]]}) // in: $dataset, tree out[0]: ($dataset, treetime, $tree_file)
   
-  all = Channel.from("fluH3L_bed15", "lassaL_kli22", "wnv_del20", "sars2_lem21", "ebov_dud17",
-  "ebov_mba21", "fluH1L_bed15", "fluPb2_wor14", "fluVicL_bed15", "hiv_far14", "mumps_mon21", "rabies_via23", "sars2_can20",
-  "sars2_pek22", "zikv_gru19")
-  // all = Channel.from("ebov_mba21-1", "lassaL_kli22-1")
-  // ch = all.map{
-  //   it ->
-  //   [it, file("${baseDir}/results/datasets/${it}/lsd2/ali.fasta.lsd.date.nexus")]
-  // }
-
-  ch_map = all.map{
+  ch_map = datasets.map{
     it ->
     [it, file("${params.datasets}/${it}/prob_run01.log"), file("${params.datasets}/${it}/run01.trees")]
   }
   PARSE_MAP(ch_map) // in: ($dataset, prob_run01.log, run01.trees) out: ($dataset, map, map.nwk)
 
-  ch_mcc = all.map{
+  ch_mcc = datasets.map{
     it ->
     [it, "mcc", file("${params.datasets}/${it}/run01_burninNgen200000000_MCC.tree")]
   }
@@ -198,19 +167,5 @@ workflow {
   ch_all = ch_mcc.concat(PARSE_MAP.out[0], RUN_LSD.out[0], RUN_TREETIME.out[0])
   CREATE_BEAST_XML(ch_all) // in: ($dataset, $type, $tree) out: ($dataset, $type, run01-fixed.xml)
 
-  // xml_files = files("${baseDir}/results/datasets/**/fixed/run1-fixed.xml")
-  // xml_ch = Channel.fromPath(xml_files)
-  // ch = xml_ch.map{
-  //   it ->
-  //   [func(it.toString()), it]
-  // }
-
-  // ch_mcc = all.map{
-  //   it ->
-  //   [it, file("${params.datasets}/${it}/run1.trees")]
-  // }
-  // RUN_TREEANNOTATOR(ch_mcc) // in: (dataset, tree) out: (dataset, mcc_nexus, mcc_tree)
-
-  // CREATE_BEAST_XML(ch)
-  RUN_BEAST(CREATE_BEAST_XML.out) // in: (dataset, xml) out: dataset, "*.log", "*.trees"
+  RUN_BEAST(CREATE_BEAST_XML.out) // in: ($dataset, $type, $xml) out: $dataset, $type, "*.log", "*.trees"
 }
