@@ -8,11 +8,31 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-library(ggplot2)
 library(tidyverse)
 library(scales)
-library(data.table)
 ```
+
+\newpage
+
+# Datasets
+
+Dataset         Sequences  Length  Coalescent          Clock   Substitution
+------------   ---------- -------  ------------------- ------  ------------
+ebov_dud17     1610         18992  Skygrid (50, 2.0)     UCLN  1+2+3(HKY+G4) + 14518:18992 HKY+G4
+ebov_mba21      297         16757  Skygrid (50, 1.75)    UCLN  12+3(HKY+G4)  8 date unknown
+fluH1L_bed15   2144          1695  Constant            Strict  12+3(HKY)
+fluH3L_bed15   4006          1698  Constant            Strict  12+3(HKY)
+fluPb2_wor14    354          2280  Skygrid (50, 150)    Local  12+3(HKY)+G4
+fluVicL_bed15  1999          1755  Constant            Strict  12+3(HKY)
+hiv_far14       927           438  Skygrid (50, 90.0)    UCLN  GTR+G4
+lassaL_kli22    551          7038  Skygrid (50, 500.0)   UCLN  GTR+G4
+mumps_mon21     467         15393  Skygrid (50, 25.0)  Strict  HKY+G4
+rabies_via23    290         11883  Skygrid (50,20.0)     UCLN  12+3(GTR+G4)
+sars2_can20    1046         29409  Skygrid (20, 0.5)   Strict  HKY+G4
+sars2_lem21    3241         29409  Skygrid (20, 0.5)   Strict  HKY+G4
+sars2_pek22     717         29232  Skygrid (20, 0.37)  Strict  GTR+I
+wnv_del20       801         10302  Skygrid (50, 19.0)    UCLN  GTR+G4
+zikv_gru19      283         10269  Skygrid (50, 5.0)     UCLN  1+2+3(HKY+G4)
 
 \newpage
 
@@ -26,103 +46,154 @@ results <- file.path("results", "datasets")
 ```
 
 ```{r}
-parse.dataset <- function(dataset, params, runs, burnins, issky = T) {
+parse.dataset <- function(dataset, params, burnin) {
   param <- NULL
   sky <- NULL
-  precision <- NULL
-  for (i in seq_along(runs)) {
-    log.file <- file.path(ssstree_datasets, dataset, paste0("param_run", i, ".log"))
-    # df <- fread(cmd = log.file, sep = "\t", skip = "state")
-    df <- read_tsv(log.file, skip = 3, show_col_types = FALSE)
-
-    print(paste0("unconstrained", i, ": ", nrow(df)))
-    df <- df[seq(1, nrow(df), 5), ]
-    param <- df[as.integer(burnins[i] * nrow(df)):nrow(df), ] %>%
-      select(all_of(params)) %>%
-      mutate(type = paste0("unconstrained", i)) %>%
-      bind_rows(param)
-
-    if (issky) {
-      sky.file <- file.path(ssstree_datasets, dataset, paste0("sky_run", i, ".log"))
-      # df <- fread(sky.file, sep = "\t", skip = "state")
-      df <- read_tsv(sky.file, skip = 3, show_col_types = FALSE)
-
-      sky <- df[as.integer(burnins[i] * nrow(df)):nrow(df), ] %>%
-        select(starts_with("skygrid.logPopSize")) %>%
-        mutate(type = paste0("unconstrained", i)) %>%
-        bind_rows(sky)
-
-      precision <- df[as.integer(burnins[i] * nrow(df)):nrow(df), ] %>%
-        select(skygrid.precision) %>%
-        bind_rows(precision)
-    }
-  }
-
-  # df <- fread(file.path(results, dataset, "fixed", paste0("param_run", 1, ".log")),
-  #   sep = "\t", skip = "state"
-  # )
-  df.log <- read_tsv(file.path(results, dataset, "fixed", paste0("param_run", 1, ".log")),
-    skip = 3, show_col_types = FALSE
-  )
-
-  df.log <- df.log[seq(1, nrow(df.log), 5), ]
-  print(paste0("fixed: ", nrow(df.log)))
-  param <- df.log[as.integer(0.5 * nrow(df.log)):nrow(df.log), ] %>%
-    select(all_of(params)) %>%
-    mutate(type = "fixed") %>%
+  
+  log.file <- file.path(ssstree_datasets, dataset, "param_run01.log")
+  df <- read_tsv(log.file, skip = 3, show_col_types = FALSE)
+  
+  print(paste0("unconstrained: ", nrow(df)))
+  df <- df[seq(1, nrow(df), 5), ]
+  param <- df[as.integer(burnin * nrow(df)):nrow(df), ] %>%
+    select(any_of(params)) %>%
+    mutate(type = "unconstrained") %>%
     bind_rows(param)
-
-  if (issky) {
-    # df <- fread(file.path(results, dataset, "fixed", paste0("sky_run", 1, ".log")),
-    #   sep = "\t", skip = "state"
-    # )
-    df <- read_tsv(file.path(results, dataset, "fixed", paste0("sky_run", 1, ".log")),
-      skip = 3, show_col_types = FALSE
-    )
-    if (nrow(df) != nrow(df.log)) {
-      df <- df[1:nrow(df.log), ]
-    }
-    print(paste0("fixed: ", nrow(df)))
-    sky <- df[as.integer(0.5 * nrow(df)):nrow(df), ] %>%
+  
+  sky.file <- file.path(ssstree_datasets, dataset, "sky_run01.log")
+  if (file.exists(sky.file)) {
+    df <- read_tsv(sky.file, skip = 3, show_col_types = FALSE)
+    
+    sky <- df[as.integer(burnins[i] * nrow(df)):nrow(df), ] %>%
       select(starts_with("skygrid.logPopSize")) %>%
-      mutate(type = "fixed") %>%
+      mutate(type = "unconstrained") %>%
       bind_rows(sky)
-
-    precision <- df[as.integer(burnins[i] * nrow(df)):nrow(df), ] %>%
-      select(skygrid.precision) %>%
-      bind_rows(precision)
-
-    param <- cbind(param, precision)
   }
-
+  
+  for (topology in c("unconstrained", "lsd2", "treetime", "map", "mcc", "rerooted")) {
+    stem = file.path("results", "datasets", dataset, topology)
+    log.file = file.path(stem, "param_run01.log")
+    
+    df.log <- read_tsv(log.file, skip = 3, show_col_types = FALSE)
+    
+    print(paste0(stem, " ", topology, ": ", nrow(df.log)))
+    param2 <- df.log %>%
+      slice(seq(floor(0.5 * n()), n(), by = 5)) %>%
+      select(any_of(params)) %>%
+      mutate(type = topology)
+    
+    print(paste0(topology, ": ", nrow(param2)))
+    
+    if (file.exists(file.path(stem, "sky_run01.log"))) {
+      df <- read_tsv(
+        file.path(stem, "sky_run01.log"),
+        skip = 3,
+        show_col_types = FALSE
+      )
+      
+      sky <- df %>%
+        select(starts_with("skygrid.logPopSize")) %>%
+        mutate(type = topology) %>%
+        slice(seq(floor(0.5 * n()), n(), by = 5)) %>%
+        bind_rows(sky)
+    }
+    param <- rbind(param, param2)
+  }
+  
   lsd = readLines(file.path(results, dataset, "lsd2", "ali.fasta.lsd"))
   lsd = lsd[grepl(" rate ", lsd) & grepl(" tMRCA ", lsd)]
-
-  list(param = param, sky = sky, lsd = lsd)
+  
+  treetime = readLines(
+    file.path(
+      "results-treetime",
+      "datasets",
+      dataset,
+      "treetime",
+      "treetime",
+      "molecular_clock.txt"
+    )
+  )
+  treetime = strsplit(treetime[grepl("rate", treetime)], "\t")[[1]][2]
+  
+  save(param, sky, lsd, treetime, file = paste0(dataset, ".RData"))
+  
+  list(
+    param = param,
+    sky = sky,
+    lsd = lsd,
+    treetime = treetime
+  )
 }
 
 prepare.skygrids <- function(param, sky, cutoff, min, max, youngest) {
   skygrids <- NULL
-
+  
   param.split <- param %>%
     group_by(type) %>%
     group_split()
-
+  
   sky.split <- sky %>%
     group_by(type) %>%
     group_split()
-
+  
   for (i in 1:length(param.split)) {
-    height <- param.split[[i]] %>% select(rootHeight)
-    pop <- sky.split[[i]] %>% select(starts_with("skygrid.logPopSize"))
-    skygrid <- prepareSkygrid(height, pop, cutoff, min, max, youngest)
-    skygrids <- rbind(
-      skygrids,
-      mutate(skygrid, type = param.split[[i]]$type[1])
-    )
+    root_height <- param.split[[i]] %>% select(rootHeight)
+    log_pop_size <- sky.split[[i]] %>% select(starts_with("skygrid.logPopSize"))
+    skygrid <- prepareSkygrid(root_height, log_pop_size, cutoff, min, max, youngest)
+    # skygrid <- prepare_skygrid(root_height, log_pop_size, cutoff, age_of_youngest=youngest)
+    skygrids <- rbind(skygrids, mutate(skygrid, type = param.split[[i]]$type[1]))
   }
-  skygrids %>% mutate(low = exp(low), high = exp(high), median = exp(median))
+  skygrids %>% mutate(
+    low = exp(low),
+    high = exp(high),
+    median = exp(median)
+  )
+  # skygrid <-  mutate(skygrid, across(all_of(c("trajectory", "trajectory_low", "trajectory_high"))), exp)
 }
+```
+
+\newpage
+
+# ebov_dud17
+
+```{r ebov_dud17-parse}
+params <- c("rootHeight", "meanRate", "treeLength", "cp1.kappa", "cp1.alpha", "cp1.mu", "skygrid.precision")
+data <- parse.dataset("ebov_dud17", params, 0.5)
+```
+
+```{r, results='asis'}
+cat(data$lsd)
+```
+
+```{r}
+df <- data$param %>% gather("param", "value", -type)
+ggplot(df, aes(value, group = type, colour = type)) +
+  geom_density() +
+  facet_wrap(~param, scales = "free")
+```
+
+```{r}
+skygrids <- prepare.skygrids(data$param, data$sky, 0.5, 2019.5, 2020.4, 2020.327868852459)
+```
+
+```{r}
+ggplot(skygrids, aes(x = x, y = median, color = type)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(), strip.background = element_blank(),
+    panel.border = element_rect(colour = "black")
+  ) +
+  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
+  geom_line() +
+  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
+  scale_y_log10(
+    breaks = trans_breaks("log10", function(x) 10^x),
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
+  xlab("Year") +
+  ylab("Effective population size") +
+  labs(title = "skygrids")
 ```
 
 \newpage
@@ -130,8 +201,8 @@ prepare.skygrids <- function(param, sky, cutoff, min, max, youngest) {
 # ebov_mba21
 
 ```{r ebov_mba21-parse}
-params <- c("rootHeight", "meanRate", "treeLength", "cp12.alpha", "cp12.mu")
-data <- parse.dataset("ebov_mba21", params, 1:4, rep(0.5, 4))
+params <- c("rootHeight", "meanRate", "treeLength", "cp12.alpha", "cp12.mu", "skygrid.precision")
+data <- parse.dataset("ebov_mba21", params, 0.5)
 ```
 ```{r, results='asis'}
 cat(data$lsd)
@@ -149,6 +220,7 @@ skygrids <- prepare.skygrids(data$param, data$sky, 1.75, 2018, 2020.2, 2020.1284
 ```
 
 ```{r}
+# skyplot(skygrids, fill_by=type, color = type, alpha=0.0) + ylab("Effective population size")
 ggplot(skygrids, aes(x = x, y = median, color = type)) +
   theme_bw() +
   theme(
@@ -170,288 +242,11 @@ ggplot(skygrids, aes(x = x, y = median, color = type)) +
 
 \newpage
 
-# sars2_pek22
-
-```{r sars2_pek22-parse}
-params <- c("rootHeight", "clock.rate", "treeLength", "pInv")
-data <- parse.dataset("sars2_pek22", params, 1:4, rep(0.5, 4))
-```
-
-```{r, results='asis'}
-cat(data$lsd)
-```
-
-```{r}
-df <- data$param %>% gather("param", "value", -type)
-ggplot(df, aes(value, group = type, colour = type)) +
-  geom_density() +
-  facet_wrap(~param, scales = "free")
-```
-
-```{r}
-skygrids <- prepare.skygrids(data$param, data$sky, 0.37, 2019.75, 2020.2, 2020.120218579235)
-```
-
-```{r}
-ggplot(skygrids, aes(x = x, y = median, color = type)) +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(), strip.background = element_blank(),
-    panel.border = element_rect(colour = "black")
-  ) +
-  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
-  geom_line() +
-  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
-  scale_y_log10(
-    breaks = trans_breaks("log10", function(x) 10^x),
-    labels = trans_format("log10", math_format(10^.x))
-  ) +
-  xlab("Year") +
-  ylab("Effective population size") +
-  labs(title = "skygrids")
-```
-
-\newpage
-
-# zikv_gru19
-
-```{r zikv_gru19-zikv_gru19}
-params <- c("rootHeight", "meanRate", "treeLength", "meanRate", "cp1.alpha", "cp1.mu")
-data <- parse.dataset("zikv_gru19", params, 1:4, rep(0.5, 4))
-```
-
-```{r, results='asis'}
-cat(data$lsd)
-```
-
-```{r}
-df <- data$param %>% gather("param", "value", -type)
-ggplot(df, aes(value, group = type, colour = type)) +
-  geom_density() +
-  facet_wrap(~param, scales = "free")
-```
-
-```{r}
-skygrids <- prepare.skygrids(data$param, data$sky, 5.0, 2013, 2018.1, 2018.0465753424658)
-```
-
-```{r}
-ggplot(skygrids, aes(x = x, y = median, color = type)) +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(), strip.background = element_blank(),
-    panel.border = element_rect(colour = "black")
-  ) +
-  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
-  geom_line() +
-  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
-  scale_y_log10(
-    breaks = trans_breaks("log10", function(x) 10^x),
-    labels = trans_format("log10", math_format(10^.x))
-  ) +
-  xlab("Year") +
-  ylab("Effective population size") +
-  labs(title = "skygrids")
-```
-
-\newpage
-
-# rabies_via23
-
-```{r rabies_via23-parse}
-params <- c("rootHeight", "meanRate", "treeLength", "cp12.alpha", "cp12.mu")
-data <- parse.dataset("rabies_via23", params, 1:4, rep(0.5, 4))
-```
-
-```{r, results='asis'}
-cat(data$lsd)
-```
-
-```{r}
-df <- data$param %>% gather("param", "value", -type)
-ggplot(df, aes(value, group = type, colour = type)) +
-  geom_density() +
-  facet_wrap(~param, scales = "free")
-```
-
-```{r}
-skygrids <- prepare.skygrids(data$param, data$sky, 20.0, 1998.75, 2016.1, 2016.0738)
-```
-
-```{r}
-ggplot(skygrids, aes(x = x, y = median, color = type)) +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(), strip.background = element_blank(),
-    panel.border = element_rect(colour = "black")
-  ) +
-  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
-  geom_line() +
-  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
-  scale_y_log10(
-    breaks = trans_breaks("log10", function(x) 10^x),
-    labels = trans_format("log10", math_format(10^.x))
-  ) +
-  xlab("Year") +
-  ylab("Effective population size") +
-  labs(title = "skygrids")
-```
-
-
-\newpage
-
-# lassaL_kli22
-
-```{r lassaL_kli22-parse}
-params <- c("rootHeight", "meanRate", "treeLength", "alpha", "gtr.rates.rateAC")
-data <- parse.dataset("lassaL_kli22", params, 1:4, rep(0.5, 4))
-```
-
-```{r, results='asis'}
-cat(data$lsd)
-```
-
-```{r}
-df <- data$param %>% gather("param", "value", -type)
-ggplot(df, aes(value, group = type, colour = type)) +
-  geom_density() +
-  facet_wrap(~param, scales = "free")
-```
-
-```{r}
-skygrids <- prepare.skygrids(data$param, data$sky, 1519.0, 1019, 2019.2, 2019.1780821917807)
-```
-
-```{r}
-ggplot(skygrids, aes(x = x, y = median, color = type)) +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(), strip.background = element_blank(),
-    panel.border = element_rect(colour = "black")
-  ) +
-  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
-  geom_line() +
-  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
-  scale_y_log10(
-    breaks = trans_breaks("log10", function(x) 10^x),
-    labels = trans_format("log10", math_format(10^.x))
-  ) +
-  xlab("Year") +
-  ylab("Effective population size") +
-  labs(title = "skygrids")
-```
-
-```{r}
-df <- fread(file.path(results, "lassaL_kli22", "fixed", paste0("prob_run", 1, ".log")), sep = "\t", skip = "state")
-df <- df %>%
-  select(posterior, likelihood, prior) %>%
-  mutate(iter = 1:nrow(df)) %>%
-  gather("param", "value", -iter)
-ggplot(df, aes(x = iter, y = value, colour = param)) +
-  geom_line() +
-  facet_wrap(~param)
-```
-
-\newpage
-
-# sars2_can20
-
-```{r sars2_can20-parse}
-params <- c("rootHeight", "clock.rate", "treeLength", "alpha", "kappa")
-data <- parse.dataset("sars2_can20", params, 1:4, rep(0.5, 4))
-```
-
-```{r, results='asis'}
-cat(data$lsd)
-```
-
-```{r}
-df <- data$param %>% gather("param", "value", -type)
-ggplot(df, aes(value, group = type, colour = type)) +
-  geom_density() +
-  facet_wrap(~param, scales = "free")
-```
-
-```{r}
-skygrids <- prepare.skygrids(data$param, data$sky, 0.5, 2019.5, 2020.4, 2020.327868852459)
-```
-
-```{r}
-ggplot(skygrids, aes(x = x, y = median, color = type)) +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(), strip.background = element_blank(),
-    panel.border = element_rect(colour = "black")
-  ) +
-  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
-  geom_line() +
-  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
-  scale_y_log10(
-    breaks = trans_breaks("log10", function(x) 10^x),
-    labels = trans_format("log10", math_format(10^.x))
-  ) +
-  xlab("Year") +
-  ylab("Effective population size") +
-  labs(title = "skygrids")
-```
-
-
-\newpage
-
-# ebov_dud17
-
-```{r ebov_dud17-parse}
-params <- c("rootHeight", "meanRate", "treeLength", "cp1.kappa", "cp1.alpha", "cp1.mu")
-data <- parse.dataset("ebov_dud17", params, 1:4, rep(0.5, 4))
-```
-
-```{r, results='asis'}
-cat(data$lsd)
-```
-
-```{r}
-df <- data$param %>% gather("param", "value", -type)
-ggplot(df, aes(value, group = type, colour = type)) +
-  geom_density() +
-  facet_wrap(~param, scales = "free")
-```
-
-```{r}
-skygrids <- prepare.skygrids(data$param, data$sky, 0.5, 2019.5, 2020.4, 2020.327868852459)
-```
-
-```{r}
-ggplot(skygrids, aes(x = x, y = median, color = type)) +
-  theme_bw() +
-  theme(
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(), strip.background = element_blank(),
-    panel.border = element_rect(colour = "black")
-  ) +
-  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
-  geom_line() +
-  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
-  scale_y_log10(
-    breaks = trans_breaks("log10", function(x) 10^x),
-    labels = trans_format("log10", math_format(10^.x))
-  ) +
-  xlab("Year") +
-  ylab("Effective population size") +
-  labs(title = "skygrids")
-```
-
-\newpage
-
 # fluH1L_bed15
 
 ```{r fluH1_bed15-parse}
 params <- c("rootHeight", "clock.rate", "treeLength", "constant.popSize", "cp12.mu", "cp12.kappa")
-data <- parse.dataset("fluH1L_bed15", params, 1:4, rep(0.5, 4), issky = FALSE)
+data <- parse.dataset("fluH1L_bed15", params, 0.5)
 ```
 
 ```{r, results='asis'}
@@ -471,7 +266,7 @@ ggplot(df, aes(value, group = type, colour = type)) +
 
 ```{r fluH3L_bed15-parse}
 params <- c("rootHeight", "clock.rate", "treeLength", "constant.popSize", "cp12.kappa", "cp12.mu")
-data <- parse.dataset("fluH3L_bed15", params, 1:4, rep(0.5, 4), issky = FALSE)
+data <- parse.dataset("fluH3L_bed15", params, 0.5)
 ```
 
 ```{r}
@@ -481,7 +276,6 @@ ggplot(df, aes(value, group = type, colour = type)) +
   facet_wrap(~param, scales = "free")
 ```
 
-
 \newpage
 
 # fluPb2_wor14
@@ -490,9 +284,9 @@ ggplot(df, aes(value, group = type, colour = type)) +
 params <- c(
   "rootHeight", "treeLength", "cp12.alpha", "cp12.kappa", "cp12.mu",
   "tmrca(equine1)", "tmrca(equine2)", "tmrca(galliform1)", "tmrca(human1)", "tmrca(shorebird1)", "tmrca(swine1)", "tmrca(swine2)", "tmrca(swine3)",
-  "avian.rate", "equine.rate", "galliform1.rate", "human1.rate", "shorebird1.rate", "swine1.rate", "swine2.rate", "swine3.rate"
+  "avian.rate", "equine.rate", "galliform1.rate", "human1.rate", "shorebird1.rate", "swine1.rate", "swine2.rate", "swine3.rate", "skygrid.precision"
 )
-data <- parse.dataset("fluPb2_wor14", params, 1:4, rep(0.5, 4))
+data <- parse.dataset("fluPb2_wor14", params, 0.5)
 ```
 
 ```{r, results='asis'}
@@ -536,7 +330,7 @@ ggplot(skygrids, aes(x = x, y = median, color = type)) +
 
 ```{r fluVicL_bed15-parse}
 params <- c("rootHeight", "treeLength", "clock.rate", "constant.popSize", "cp12.kappa", "cp12.mu")
-data <- parse.dataset("fluVicL_bed15", params, 1:4, rep(0.5, 4), issky = FALSE)
+data <- parse.dataset("fluVicL_bed15", params, 0.5)
 ```
 
 ```{r, results='asis'}
@@ -550,14 +344,13 @@ ggplot(df, aes(value, group = type, colour = type)) +
   facet_wrap(~param, scales = "free")
 ```
 
-
 \newpage
 
 # hiv_far14
 
 ```{r hiv_far14-parse}
-params <- c("rootHeight", "treeLength", "alpha", "gtr.rates.rateAC", "frequencies1")
-data <- parse.dataset("hiv_far14", params, 1:4, rep(0.5, 4))
+params <- c("rootHeight", "treeLength", "meanRate", "alpha", "gtr.rates.rateAC", "frequencies1", "skygrid.precision")
+data <- parse.dataset("hiv_far14", params, 0.5)
 ```
 
 ```{r, results='asis'}
@@ -595,14 +388,57 @@ ggplot(skygrids, aes(x = x, y = median, color = type)) +
   labs(title = "skygrids")
 ```
 
+\newpage
+
+# lassaL_kli22
+
+```{r lassaL_kli22-parse}
+params <- c("rootHeight", "meanRate", "treeLength", "alpha", "gtr.rates.rateAC", "skygrid.precision")
+data <- parse.dataset("lassaL_kli22", params, 0.5)
+```
+
+```{r, results='asis'}
+cat(data$lsd)
+```
+
+```{r}
+df <- data$param %>% gather("param", "value", -type)
+ggplot(df, aes(value, group = type, colour = type)) +
+  geom_density() +
+  facet_wrap(~param, scales = "free")
+```
+
+```{r}
+skygrids <- prepare.skygrids(data$param, data$sky, 1519.0, 1019, 2019.2, 2019.1780821917807)
+```
+
+```{r}
+ggplot(skygrids, aes(x = x, y = median, color = type)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(), strip.background = element_blank(),
+    panel.border = element_rect(colour = "black")
+  ) +
+  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
+  geom_line() +
+  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
+  scale_y_log10(
+    breaks = trans_breaks("log10", function(x) 10^x),
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
+  xlab("Year") +
+  ylab("Effective population size") +
+  labs(title = "skygrids")
+```
 
 \newpage
 
 # mumps_mon21
 
 ```{r mumps_mon21-parse}
-params <- c("rootHeight", "treeLength", "clock.rate", "alpha", "kappa", "frequencies1")
-data <- parse.dataset("mumps_mon21", params, 1:4, rep(0.5, 4))
+params <- c("rootHeight", "treeLength", "clock.rate", "alpha", "kappa", "frequencies1", "skygrid.precision")
+data <- parse.dataset("mumps_mon21", params, 0.5)
 ```
 
 ```{r, results='asis'}
@@ -640,14 +476,101 @@ ggplot(skygrids, aes(x = x, y = median, color = type)) +
   labs(title = "skygrids")
 ```
 
+\newpage
+
+# rabies_via23
+
+```{r rabies_via23-parse}
+params <- c("rootHeight", "meanRate", "treeLength", "cp12.alpha", "cp12.mu", "skygrid.precision")
+data <- parse.dataset("rabies_via23", params, 0.5)
+```
+
+```{r, results='asis'}
+cat(data$lsd)
+```
+
+```{r}
+df <- data$param %>% gather("param", "value", -type)
+ggplot(df, aes(value, group = type, colour = type)) +
+  geom_density() +
+  facet_wrap(~param, scales = "free")
+```
+
+```{r}
+skygrids <- prepare.skygrids(data$param, data$sky, 20.0, 1998.75, 2016.1, 2016.0738)
+```
+
+```{r}
+ggplot(skygrids, aes(x = x, y = median, color = type)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(), strip.background = element_blank(),
+    panel.border = element_rect(colour = "black")
+  ) +
+  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
+  geom_line() +
+  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
+  scale_y_log10(
+    breaks = trans_breaks("log10", function(x) 10^x),
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
+  xlab("Year") +
+  ylab("Effective population size") +
+  labs(title = "skygrids")
+```
+
+\newpage
+
+# sars2_can20
+
+```{r sars2_can20-parse}
+params <- c("rootHeight", "clock.rate", "treeLength", "alpha", "kappa", "skygrid.precision")
+data <- parse.dataset("sars2_can20", params, 0.5)
+```
+
+```{r, results='asis'}
+cat(data$lsd)
+```
+
+```{r}
+df <- data$param %>% gather("param", "value", -type)
+ggplot(df, aes(value, group = type, colour = type)) +
+  geom_density() +
+  facet_wrap(~param, scales = "free")
+```
+
+```{r}
+skygrids <- prepare.skygrids(data$param, data$sky, 0.5, 2019.5, 2020.4, 2020.327868852459)
+```
+
+```{r}
+ggplot(skygrids, aes(x = x, y = median, color = type)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(), strip.background = element_blank(),
+    panel.border = element_rect(colour = "black")
+  ) +
+  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
+  geom_line() +
+  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
+  scale_y_log10(
+    breaks = trans_breaks("log10", function(x) 10^x),
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
+  xlab("Year") +
+  ylab("Effective population size") +
+  labs(title = "skygrids")
+```
 
 \newpage
 
 # sars2_lem21
 
 ```{r sars2_lem21-parse}
-params <- c("rootHeight", "treeLength", "clock.rate", "alpha", "kappa", "frequencies1")
-data <- parse.dataset("sars2_lem21", params, 1:4, rep(0.5, 4))
+params <- c("rootHeight", "treeLength", "clock.rate", "alpha", "kappa", "frequencies1", "skygrid.precision")
+data <- parse.dataset("sars2_lem21", params, 0.5)
 ```
 
 ```{r, results='asis'}
@@ -685,14 +608,57 @@ ggplot(skygrids, aes(x = x, y = median, color = type)) +
   labs(title = "skygrids")
 ```
 
+\newpage
+
+# sars2_pek22
+
+```{r sars2_pek22-parse}
+params <- c("rootHeight", "clock.rate", "treeLength", "pInv", "skygrid.precision")
+data <- parse.dataset("sars2_pek22", params, 0.5)
+```
+
+```{r, results='asis'}
+cat(data$lsd)
+```
+
+```{r}
+df <- data$param %>% gather("param", "value", -type)
+ggplot(df, aes(value, group = type, colour = type)) +
+  geom_density() +
+  facet_wrap(~param, scales = "free")
+```
+
+```{r}
+skygrids <- prepare.skygrids(data$param, data$sky, 0.37, 2019.75, 2020.2, 2020.120218579235)
+```
+
+```{r}
+ggplot(skygrids, aes(x = x, y = median, color = type)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(), strip.background = element_blank(),
+    panel.border = element_rect(colour = "black")
+  ) +
+  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
+  geom_line() +
+  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
+  scale_y_log10(
+    breaks = trans_breaks("log10", function(x) 10^x),
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
+  xlab("Year") +
+  ylab("Effective population size") +
+  labs(title = "skygrids")
+```
 
 \newpage
 
 # wnv_del20
 
 ```{r wnv_del20-parse}
-params <- c("rootHeight", "treeLength", "meanRate", "alpha", "gtr.rates.rateAC", "frequencies1")
-data <- parse.dataset("wnv_del20", params, 1:4, rep(0.5, 4))
+params <- c("rootHeight", "treeLength", "meanRate", "alpha", "gtr.rates.rateAC", "frequencies1", "skygrid.precision")
+data <- parse.dataset("wnv_del20", params, 0.5)
 ```
 
 ```{r, results='asis'}
@@ -708,6 +674,50 @@ ggplot(df, aes(value, group = type, colour = type)) +
 
 ```{r}
 skygrids <- prepare.skygrids(data$param, data$sky, 19, 1998, 2017, 2016.6475)
+```
+
+```{r}
+ggplot(skygrids, aes(x = x, y = median, color = type)) +
+  theme_bw() +
+  theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(), strip.background = element_blank(),
+    panel.border = element_rect(colour = "black")
+  ) +
+  geom_ribbon(aes(ymin = low, ymax = high, fill = type), alpha = 0.0) +
+  geom_line() +
+  # geom_vline(xintercept=2020.1284153005465-seq(0, 0.37, 0.37/19)) +
+  scale_y_log10(
+    breaks = trans_breaks("log10", function(x) 10^x),
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
+  xlab("Year") +
+  ylab("Effective population size") +
+  labs(title = "skygrids")
+```
+
+\newpage
+
+# zikv_gru19
+
+```{r zikv_gru19-parse}
+params <- c("rootHeight", "meanRate", "treeLength", "meanRate", "cp1.alpha", "cp1.mu", "skygrid.precision")
+data <- parse.dataset("zikv_gru19", params, 0.5)
+```
+
+```{r, results='asis'}
+cat(data$lsd)
+```
+
+```{r}
+df <- data$param %>% gather("param", "value", -type)
+ggplot(df, aes(value, group = type, colour = type)) +
+  geom_density() +
+  facet_wrap(~param, scales = "free")
+```
+
+```{r}
+skygrids <- prepare.skygrids(data$param, data$sky, 5.0, 2013, 2018.1, 2018.0465753424658)
 ```
 
 ```{r}

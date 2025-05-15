@@ -1,5 +1,5 @@
 ---
-title: "fixed tree: summariy"
+title: "fixed tree: summarry"
 author: "Mathieu"
 date: '`r format(Sys.time(), "%d %B, %Y")`'
 output:
@@ -8,9 +8,9 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-library(ggplot2)
 library(tidyverse)
 library(scales)
+knitr::opts_chunk$set(fig.path='Figs/')
 ```
 
 \newpage
@@ -106,7 +106,7 @@ kl_l <- function(x, y) {
 # c("ucld.mean", "ucld.stdev", "meanRate")
 ```
 
-```{r}
+```{r eval=FALSE, include=FALSE}
 datasets = c("fluH3L_bed15", "lassaL_kli22", "wnv_del20", "sars2_lem21", "ebov_dud17",
   "ebov_mba21", "fluH1L_bed15", "fluPb2_wor14", "fluVicL_bed15", "hiv_far14",
   "mumps_mon21", "rabies_via23", "sars2_can20", "sars2_pek22", "zikv_gru19")
@@ -117,7 +117,7 @@ for (i in seq_along(datasets)) {
   dataset = datasets[[i]]
   load(paste0(dataset, ".RData"))
   rate_name <- intersect(c("meanRate", "clock.rate", "avian.rate"), names(param))
-  param = param %>% mutate(!!"rate" := .[[rate_name[1]]])
+  param = param %>% mutate(!!"rate" := .[[rate_name[1]]]) %>% filter(type !="fixed")
   
   df = param %>% group_by(type) %>%
     summarize(
@@ -164,12 +164,167 @@ for (i in seq_along(datasets)) {
 }
 ```
 
+```{r eval=FALSE, include=FALSE}
+datasets = c(
+  "fluH3L_bed15",
+  "lassaL_kli22",
+  "wnv_del20",
+  "sars2_lem21",
+  "ebov_dud17",
+  "ebov_mba21",
+  "fluH1L_bed15",
+  "fluPb2_wor14",
+  "fluVicL_bed15",
+  "hiv_far14",
+  "mumps_mon21",
+  "rabies_via23",
+  "sars2_can20",
+  "sars2_pek22",
+  "zikv_gru19"
+)
+#c("map"="HPT", "lsd2"="LSD", "mcc"= "MCC", "treetime"="TreeTime", "unconstrained"="Unconstrained", "rerooted"="IQ-TREE/rooted")
+all_mean = NULL
+all_sd = NULL
+sky_mean = NULL
+sky_sd = NULL
+
+for (dataset in datasets) {
+  for (topology in c("unconstrained", "lsd2", "treetime", "map", "mcc", "rerooted")) {
+    if (topology == "unconstrained") {
+      stem = file.path("ssstree_datasets", dataset)
+      log.file = file.path(stem, paste0("param_run0", 1, ".log"))
+    } else{
+      stem = file.path("results", "datasets", dataset, topology)
+      log.file = file.path(stem, paste0("param_run", "0", 1, ".log"))
+      if (!file.exists(log.file)) {
+        stem = file.path("results-lsd", "datasets", dataset, topology)
+        log.file = file.path(stem, paste0("param_run", "0", 1, ".log"))
+      }
+      if (!file.exists(log.file)) {
+        stem = file.path("results-treetime", "datasets", dataset, topology)
+        log.file = file.path(stem, paste0("param_run", "0", 1, ".log"))
+      }
+      if (!file.exists(log.file)) {
+        stem = file.path("results-treetime", "datasets", dataset)
+        log.file = file.path(stem, paste0("param_run", "0", 1, ".log"))
+      }
+    }
+    if (!file.exists(log.file)) {
+      next
+    }
+    
+    df.log <- read_tsv(log.file, skip = 3, show_col_types = FALSE)
+    df.log = df.log %>%
+      slice(seq(floor(0.5 * n()), n(), by=5)) %>%
+      select(-state)
+    #df.log <- df.log[seq(1, nrow(df.log), 5), ] # subsample
+    #df.log <- df.log[as.integer(0.5 * nrow(df.log)):nrow(df.log), ] %>% select(-state)
+    
+    all_mean = df.log %>%
+      summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(),
+                   names_to = "parameter",
+                   values_to = "value") %>%
+      mutate(dataset = dataset, type = topology) %>%
+      bind_rows(all_mean)
+    
+    all_sd = df.log %>%
+      summarise(across(where(is.numeric), ~ sd(.x, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(),
+                   names_to = "parameter",
+                   values_to = "value") %>%
+      mutate(dataset = dataset, type = topology) %>%
+      bind_rows(all_sd)
+    
+    if (file.exists(file.path(stem, paste0("sky_run", "0", 1, ".log")))) {
+      sky.log <- read_tsv(file.path(stem, paste0("sky_run", "0", 1, ".log")),
+                          skip = 3,
+                          show_col_types = FALSE)
+      sky.log = sky.log %>%
+        slice(seq(floor(0.5 * n()), n(), by=5)) %>%
+        select(-state)
+
+      sky_mean = sky.log %>%
+        summarise(across(where(is.numeric), \(x) mean(x, na.rm = TRUE))) %>%
+        pivot_longer(
+          cols = everything(),
+          names_to = "pop",
+          values_to = "value"
+        ) %>%
+        mutate(dataset = dataset, type = topology) %>%
+        bind_rows(sky_mean)
+      
+      sky_sd = sky.log %>%
+        summarise(across(where(is.numeric), \(x) sd(x, na.rm = TRUE))) %>%
+        pivot_longer(
+          cols = everything(),
+          names_to = "pop",
+          values_to = "value"
+        ) %>%
+        mutate(dataset = dataset, type = topology) %>%
+        bind_rows(sky_sd)
+    }
+  }
+}
+save(all_mean, all_sd, sky_mean, sky_sd, file = "summary.RData")
+```
+
+```{r eval=FALSE, include=FALSE}
+for(dataset in c("rabies_via23")){
+  for(type in c()){
+df.log <- read_tsv(file.path("results-treetime", "datasets", dataset, paste0("param_run", "0", 1, ".log")),
+    skip = 3, show_col_types = FALSE
+  )
+rate_name <- intersect(c("meanRate", "clock.rate", "avian.rate"), names(df.log))
+  df.log <- df.log[seq(1, nrow(df.log), 5), ]
+  param2 <- df.log[as.integer(0.5 * nrow(df.log)):nrow(df.log), ] %>%
+    #select(any_of(c("rootHeight", "clock.rate", "treeLength", "pInv", "skygrid.precision"))) %>% # sars2_pek22
+    select(any_of(c("rootHeight", "meanRate", "treeLength", "cp12.alpha", "cp12.mu", "skygrid.precision"))) %>% #rabies_via23
+    mutate(type = "rerooted") %>% mutate(!!"rate" := .[[rate_name[1]]])
+  
+  all_mean = param2 %>% group_by(type) %>%
+    summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>%
+    pivot_longer(!type, names_to = "parameter", values_to = "value") %>%
+    mutate(dataset = dataset) %>%
+    bind_rows(all_mean)
+  }
+}
+```
+
 ```{r}
-uncons = all_mean %>% filter(type == "unconstrained1") %>% select(-type)
-cons = all_mean %>% filter(type != "unconstrained1")
-df = cons %>% full_join(uncons, by = c("dataset", "parameter")) %>%
+load("summary.RData")
+all_mean$type <- recode(all_mean$type,
+                        "mcc" = "MCC",
+                        "lsd2" = "LSD",
+                        "treetime" = "TreeTime",
+                        "map"="MSP",
+                        "rerooted"="Rerooted")
+
+all_sd$type <- recode(all_sd$type,
+                        "mcc" = "MCC",
+                        "lsd2" = "LSD",
+                        "treetime" = "TreeTime",
+                        "map"="MSP",
+                        "rerooted"="Rerooted")
+
+sky_mean$type <- recode(sky_mean$type,
+                        "mcc" = "MCC",
+                        "lsd2" = "LSD",
+                        "treetime" = "TreeTime",
+                        "map"="MSP",
+                        "rerooted"="Rerooted")
+```
+
+```{r}
+all_mean = all_mean %>% mutate(stat="mean")
+all_sd = all_sd %>% mutate(stat="sd")
+
+uncons = all_mean %>% bind_rows(all_sd) %>% filter(type == "unconstrained") %>% select(-type)
+cons = all_mean %>% bind_rows(all_sd) %>% filter(type != "unconstrained")
+
+df_all = cons %>% full_join(uncons, by = c("dataset", "parameter", "stat")) %>%
   mutate(value = (value.x - value.y) / value.y) %>%
-  select(type, parameter, dataset, value) %>%
+  select(type, parameter, dataset, value, stat) %>%
   rename(Method = type, Dataset = dataset) %>%
   filter(parameter != "rate") %>%
   mutate(
@@ -189,6 +344,58 @@ df = cons %>% full_join(uncons, by = c("dataset", "parameter")) %>%
       TRUE                            ~ "other"
     )
   )
+df_mean = df_all %>% filter(stat == "mean")
+df_sd = df_all %>% filter(stat == "sd")
+```
+
+```{r}
+rerooted = df_mean %>% filter(Method == "Rerooted")
+same = df_mean %>% filter(Method != "Rerooted") %>% filter(Method %in% c("LSD", "TreeTime"))
+
+df2=rerooted %>% left_join(same, by = c("Dataset", "parameter", "stat", "model")) %>%
+  rename(rerooted=value.x, heuristic=value.y) %>%
+  mutate(diff=rerooted-heuristic) %>%
+  filter(model!= "other")
+
+ggplot(df2, aes(rerooted, heuristic, col=model, shape=Method.y))+
+  geom_point() +
+  geom_abline(slope=1,intercept=0) #+
+  #facet_wrap(~model)
+```
+```{r}
+print(paste0(nrow(filter(df2, Method.y=="LSD" & diff < 0)), " ", nrow(filter(df2, Method.y=="LSD"))))
+print(paste0(nrow(filter(df2, Method.y=="TreeTime" & diff < 0)), " ", nrow(filter(df2, Method.y=="TreeTime"))))
+
+print(paste0(nrow(filter(df2, Method.y=="LSD" & diff < 0 & model %in% c("coalescent", "tree", "clock"))), " ", nrow(filter(df2, Method.y=="LSD",model %in% c("coalescent", "tree", "clock")))))
+print(paste0(nrow(filter(df2, Method.y=="TreeTime" & diff < 0 & model %in% c("coalescent", "tree", "clock"))), " ", nrow(filter(df2, Method.y=="TreeTime",model %in% c("coalescent", "tree", "clock")))))
+```
+
+```{r}
+df2=cons %>% full_join(uncons, by = c("dataset", "parameter", "stat")) %>%
+  rename(constrained=value.x, unconstrained=value.y) %>%
+  filter(parameter!="state"& parameter!="treeLength") %>%
+  mutate(
+    model = case_when(
+      parameter == "meanRate" |
+        parameter == "clock.rate" | str_detect(parameter, ".rate$") ~ "clock",
+      parameter == "rootHeight" |
+        parameter == "treeLength" | str_detect(parameter, "^tmrca") ~ "tree",
+      parameter == "constant.popSize" |
+        parameter == "skygrid.precision" ~ "coalescent",
+      str_detect(parameter, "gtr") |
+        str_detect(parameter, "mu") |
+        str_detect(parameter, "frequencies") |
+        str_detect(parameter, "kappa") ~ "subsmodel",
+      str_detect(parameter, "mu") |
+        str_detect(parameter, "alpha") | parameter == "pInv" ~ "sitemodel",
+      TRUE                            ~ "other"
+    )
+  ) %>%
+  filter(stat=="mean")
+
+ggplot(df2, aes(x=unconstrained, y=constrained, col=type, shape=model)) +
+  geom_point() +
+  geom_abline(slope=1,intercept=0)
 ```
 
 # Substitution and site model parameters
@@ -196,11 +403,17 @@ df = cons %>% full_join(uncons, by = c("dataset", "parameter")) %>%
 - Substitution model: kappa, gtr.rates, frequencies
 - Site model: alpha, pInv, mu
 
-```{r}
-df2 = df %>% filter(model %in% c("other", "subsmodel", "sitemodel"))
+```{r insensitive}
+df2 = df_mean %>% filter(model %in% c("subsmodel", "sitemodel"))
+#pdf("Figs/insensitive.pdf")
 ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
   geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  theme_bw() +
   theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
     legend.title = element_blank(),
     legend.background = element_blank(),
     legend.key = element_rect(
@@ -210,7 +423,9 @@ ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
     ),
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
-  )
+  ) +
+  labs(y = "Relative error")
+#dev.off()
 ```
 
 # Clock, coalescent, tree parameters/statistics
@@ -219,11 +434,18 @@ ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
 - Tree: rootHeight, treeLength, tmrcas
 - Clock model: strict clock rate, meanRate (UCLN), *.rate of local clock
 
-```{r}
-df2 = df %>% filter(model %in% c("coalescent", "tree", "clock"))
+```{r sensitive}
+df2 = df_mean %>% filter(model %in% c("coalescent", "tree", "clock"))  %>%
+  filter(!parameter %in% c("meanRate", "treeLength"))
+#pdf("Figs/sensitive.pdf")
 ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
   geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  theme_bw() +
   theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
     legend.title = element_blank(),
     legend.background = element_blank(),
     legend.key = element_rect(
@@ -233,17 +455,95 @@ ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
     ),
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
-  )
+  ) +
+  labs(y = "Relative error")
+```
+
+```{r re-mean}
+df2 = df_mean %>%
+  filter(model %in% c("coalescent", "tree", "clock", "subsmodel", "sitemodel")) %>%
+  filter(!parameter %in% c("meanRate", "treeLength"))
+
+#pdf("Figs/sensitive.pdf")
+ggplot(df2, aes(y = value, x = model, col = Method)) +
+  #geom_jitter(width = 0.2, size = 1, aes(shape = Dataset)) +
+  geom_boxplot() +
+  #geom_jitter(size = 0.5) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    legend.position = "inside",
+    legend.position.inside = c(0.1, 0.8),
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    axis.title.x = element_blank()
+  ) +
+  labs(y = "Relative error of mean") #+ ggtitle("Relative error of mean")
+#dev.off()
+```
+
+```{r}
+df2 = df_sd %>% filter(model %in% c("coalescent", "tree", "clock", "subsmodel", "sitemodel")) %>%
+  filter(!parameter %in% c("meanRate", "treeLength"))
+
+#pdf("Figs/sensitive.pdf")
+ggplot(df2, aes(y = value, col = Method, x = model)) +
+  #geom_jitter(width = 0.2, size = 1, aes(shape = Dataset)) +
+  geom_boxplot() +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  ) +
+  labs(y = "Relative error") +
+  ggtitle("Relative error of standard deviation")
+#dev.off()
 ```
 
 # Skygrid population size parameters
 
 $RRMSE(\bf{\bar x}) = \sqrt{1/n \sum_i^n \left(\frac{\bar x_i - \bar x_i^{u}}{\bar x_i^{u}}\right)^2}$ where $\bar x_i^{u}$ is the $i^{th}$ mean population size parameter of the unconstrained run and $\bar x_i$ is the mean population size parameter for a constrained run.
 
-```{r}
-ggplot(all_sky, aes(y = RRMSE, col = Method, x = Dataset)) +
+```{r skygrids}
+#pdf("Figs/skygrids.pdf")
+uncons = sky_mean %>% filter(type == "unconstrained")
+cons = sky_mean %>% filter(type != "unconstrained")
+
+df.pop = cons %>% full_join(uncons, by = c("dataset", "pop")) %>%
+  mutate(value = ((value.x - value.y) / value.y) ** 2) %>%
+  select(type.x, value, dataset) %>%
+  group_by(type.x, dataset) %>% summarise(sqrt_mean = sqrt(mean(value)), .groups = "drop") %>%
+  rename(Method = type.x, RMSRE = sqrt_mean, Dataset = dataset)# %>% filter(RRMSE <100)
+
+
+ggplot(df.pop, aes(y = RMSRE, col = Method, x = Dataset)) +
   geom_jitter(width = 0.2, size = 1) +
+  scale_y_log10() +
+  theme_bw() +
   theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
     legend.title = element_blank(),
     legend.background = element_blank(),
     legend.key = element_rect(
@@ -254,4 +554,40 @@ ggplot(all_sky, aes(y = RRMSE, col = Method, x = Dataset)) +
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
   )
+#dev.off() 
+```
+
+```{r}
+#pdf("Figs/skygrids.pdf")
+uncons = sky_mean %>% filter(type == "unconstrained")
+cons = sky_mean %>% filter(type != "unconstrained")
+
+df.pop = cons %>% full_join(uncons, by = c("dataset", "pop")) %>%
+  mutate(value = ((value.x - value.y) / value.y) ** 2) %>%
+  select(type.x, value, dataset) %>%
+  group_by(type.x, dataset) %>% summarise(sqrt_mean = sqrt(mean(value)), .groups = "drop") %>%
+  rename(Method = type.x, RRMSE = sqrt_mean, Dataset = dataset) %>% filter(Dataset != "ebov_mba21")
+
+
+ggplot(df.pop, aes(y = RRMSE, col = Method, x = Dataset)) +
+  geom_jitter(width = 0.2, size = 1) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  ) +
+  labs(y = "RMSRE") + 
+  ggtitle("No ebov_mba21")
+#dev.off() 
 ```
