@@ -1,11 +1,12 @@
 name: fixed-tree
 channels:
   - bioconda
+  - conda-forge
   - defaults
 dependencies:
   - click
-  - nextflow
-  - treetime==0.11.4
+  - nextflow=23.04.1
+  - treetime=0.11.4
   - pandoc
   - pip
   - python=3.10
