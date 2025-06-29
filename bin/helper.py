@@ -4,6 +4,7 @@ import re
 import xml.etree.ElementTree as ET
 
 import click
+from treezy import NewickReader, NexusReader
 
 
 def convert(fp):
@@ -41,6 +42,20 @@ def convert(fp):
             return nexus
 
 
+@click.command(help="Convert a nexus tree file to a newick tree file")
+@click.option("--input", "infile", type=click.File("r"), help="nexus file")
+@click.option(
+    "--output",
+    type=click.File("w"),
+    default=click.get_text_stream("stdout"),
+    help="newick file",
+)
+def nexus2newick(infile, output):
+    with NexusReader(infile) as reader:
+        tree = reader.next()
+    output.write(tree.newick() + "\n")
+
+
 def renamer(id_):
     # rename sequences because iqtree changes some symbols
     # zikv_gru19: one sequence has \ in its name
@@ -55,25 +70,34 @@ def renamer(id_):
 
 
 @click.command(help="Create BEAST file with fixed topology")
-@click.option("--input", type=click.UNPROCESSED, required=True, help="BEAST XML file")
+@click.option(
+    "--input", "beast_file", type=click.File("r"), required=True, help="BEAST XML file"
+)
 @click.option(
     "--output",
-    type=click.UNPROCESSED,
+    type=click.File("w"),
     required=True,
     help="BEAST XML file with fixed topology",
 )
-@click.option("--tree", type=click.UNPROCESSED, required=True, help="tree file")
+@click.option(
+    "--tree", "tree_file", type=click.File("r"), required=True, help="tree file"
+)
 @click.option("--rename", default=False)
-def beast(input, output, tree, rename):
-    with open(tree, "r") as fp:
-        for line in fp:
-            if line.startswith("#NEXUS"):
-                newick = convert(fp)
-            else:
-                newick = line.strip()
-            break
+def beast(beast_file, output, tree_file, rename):
+    line = next(tree_file)
+    is_nexus = line.startswith("#NEXUS")
+    tree_file.seek(0)
 
-    tree = ET.parse(input)
+    if is_nexus:
+        with NexusReader(tree_file) as reader:
+            tree = reader.next()
+    else:
+        with NewickReader(tree) as reader:
+            tree = reader.next()
+
+    newick = tree.newick()
+
+    tree = ET.parse(beast_file)
     root = tree.getroot()
 
     # divide chain length by 10
@@ -97,7 +121,9 @@ def beast(input, output, tree, rename):
     if logCladeOperated is not None:
         mcmc_elem.remove(logCladeOperated)
 
-    root.remove(root.find("siteLogLikelihood"))
+    site_log_likelihood = root.find("siteLogLikelihood")
+    if site_log_likelihood is not None:
+        root.remove(site_log_likelihood)
 
     # remove operators that modify the topology
     operators = ("subtreeSlide", "narrowExchange", "wideExchange", "wilsonBalding")
@@ -297,6 +323,7 @@ cli.add_command(beast)
 cli.add_command(dates)
 cli.add_command(map)
 cli.add_command(rename)
+cli.add_command(nexus2newick)
 
 if __name__ == "__main__":
     cli()

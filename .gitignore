@@ -4,4 +4,8 @@
 .Rhistory
 .RData
 .Ruserdata
+
 results*
+.nextflow*
+work
+Figs
