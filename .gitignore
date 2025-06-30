@@ -5,6 +5,13 @@
 .RData
 .Ruserdata
 
+.vscode
+
+bin/lsd2
+bin/iqtree2
+bin/beast
+bin/treeannotator
+
 results*
 .nextflow*
 work

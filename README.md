@@ -13,6 +13,19 @@ This project requires the following phylogenetic inference tools:
 | [treetime] | [0.11.4](https://github.com/neherlab/treetime/releases/tag/v0.11.4) |
 
 
+## Pipeline with docker or singularity
+There is no need to install dependencies with docker or singularity.
+
+### Running the pipeline with docker
+
+    nextflow run main.nf -profile docker
+
+### Running the pipeline with singularity and PBS
+
+    nextflow -C configs/pbs.config run main.nf -profile singularity
+
+Since the pipeline will take weeks to run to completion one should use a high performance computer. An example of configuration file for PBS Pro can be found in the [configs](configs/) folder.
+
 
 ## Installation
 
