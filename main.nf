@@ -19,6 +19,25 @@ process RUN_COMPARE_ROOT {
   """
 }
 
+process RUN_REVBAYES {
+  publishDir "$params.results/datasets/${dataset}/revbayes", mode: 'copy'
+
+  input: val(dataset)
+  output:
+    val(dataset)
+    path("revbayes.log")
+    path("revbayes.trees")
+    path("dic.csv")
+
+  """
+  helper.py rename --input ${params.datasets}/${dataset}/ali.fasta --output ali-renamed.fasta --dic_out dic.csv
+  if [ "${dataset}" = "ebov_dud17" ]; then
+    partition.py ${params.datasets}/${dataset}/ali-renamed.fasta 1:14517 14518:18992
+  fi
+  rb ${params.datasets}/${dataset}/script.Rev
+  """
+}
+
 process RUN_IQTREE {
   publishDir "$params.results/datasets/${dataset}/iqtree", mode: 'copy'
 
