@@ -26,24 +26,17 @@ def check_taxa(tree, taxon_check):
     return taxon_check
 
 
-@click.command()
-@click.option("--beast", type=click.File("r"), help="beast tree file")
-@click.option("--iqtree", type=click.File("r"), help="iqtree tree file")
-@click.option("--mcc", type=click.File("r"), help="MCC tree file")
-@click.option(
-    "--rb",
-    type=click.Path(file_okay=True, dir_okay=False, path_type=str),
-    help="revbayes tree file",
-)
-@click.option("--rb-burnin", type=int, default=1000, help="revbayes burnin")
-@click.option("--rb-step", type=int, default=1, help="revbayes step size")
-@click.option("--dic", type=click.File("r"), help="dic file")
-@click.option(
-    "--fig",
-    type=click.Path(dir_okay=False, writable=True, path_type=Path),
-    help="dic file",
-)
-def cli(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, fig):
+def plot_graph(ax, G, colors, title=None):
+    pos = nx.spring_layout(G, weight="weight", seed=42)
+    node_colors = [colors[G.nodes[n]["method"]] for n in G.nodes]
+    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=10, ax=ax)
+    ax.axis("off")
+    if title:
+        ax.set_title(title, fontsize=10)
+    return colors
+
+
+def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
     taxon_names = []
     rb_sets = defaultdict(int)
     beast_sets = defaultdict(int)
@@ -202,12 +195,6 @@ def cli(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, fig):
     G.add_nodes_from(range(n))
 
     nx.set_node_attributes(G, methods, name="method")
-    colors = {
-        "BEAST": "lightblue",
-        "RevBayes": "green",
-        "IQ-TREE": "orange",
-        "MCC": "purple",
-    }
 
     # Add weighted edges (optional: apply threshold)
     threshold = 0.1
@@ -216,31 +203,84 @@ def cli(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, fig):
             # if similarity[i, j] > threshold:
             G.add_edge(i, j, weight=similarity[i, j])
 
-    # Choose layout (2D)
-    pos = nx.spring_layout(G, weight="weight", seed=42)
-    # pos = nx.spectral_layout(G, weight="weight")
+    return G
 
-    # Draw network
-    edges = G.edges(data=True)
 
-    # weights = [d["weight"] for (_, _, d) in edges]
-    # nx.draw(G, pos, with_labels=True, node_color='lightblue', edge_color='gray', width=weights)
-    # nx.draw_networkx_edge_labels(G, pos, edge_labels={(i,j): f"{d['weight']:.2f}" for i,j,d in edges})
+@click.command()
+@click.option("--beast", type=click.File("r"), help="beast tree file")
+@click.option("--iqtree", type=click.File("r"), help="iqtree tree file")
+@click.option("--mcc", type=click.File("r"), help="MCC tree file")
+@click.option(
+    "--rb",
+    type=click.Path(file_okay=True, dir_okay=False, path_type=str),
+    help="revbayes tree file",
+)
+@click.option("--rb-burnin", type=int, default=1000, help="revbayes burnin")
+@click.option("--rb-step", type=int, default=1, help="revbayes step size")
+@click.option("--dic", type=click.File("r"), help="dic file")
+@click.option(
+    "--out",
+    type=click.Path(dir_okay=False, writable=True, path_type=Path),
+    help="Output file",
+)
+@click.option(
+    "--multi",
+    is_flag=True,
+    help="Run all dataset",
+)
+def cli(multi, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, out):
+    colors = {
+        "BEAST": "lightblue",
+        # "RevBayes": "green",
+        "IQ-TREE": "orange",
+        "MCC": "purple",
+    }
 
-    node_colors = [colors[G.nodes[n]["method"]] for n in G.nodes]
+    if multi == False:
+        G = build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic)
+        fig, ax = plt.subplots(figsize=(10, 10))
+        plot_graph(ax, G, colors)
+    else:
+        datasets = [
+            "fluH3L_bed15",
+            "lassaL_kli22",
+            "wnv_del20",
+            "sars2_lem21",
+            "ebov_dud17",
+            "ebov_mba21",
+            "fluH1L_bed15",
+            "fluPb2_wor14",
+            "fluVicL_bed15",
+            "hiv_far14",
+            "mumps_mon21",
+            "rabies_via23",
+            "sars2_can20",
+            "sars2_pek22",
+            "zikv_gru19",
+        ]
+        fig, axs = plt.subplots(4, 4, figsize=(15, 15))
+        for i, ds in enumerate(datasets):
+            print(ds)
+            beast = open(f"ssstree_datasets/{ds}/run01.trees", "r")
+            iqtree = open(
+                f"results-iqtree-part/datasets/{ds}/iqtree2/ali.fasta.treefile", "r"
+            )
+            mcc = open(f"ssstree_datasets/{ds}/run01_burninNgen200000000_MCC.tree", "r")
+            dic = open(f"results-iqtree-part/datasets/{ds}/iqtree2/dic.csv", "r")
+            G = build_graph(beast, iqtree, mcc, None, -1, -1, dic)
+            ax = axs[i // 4, i % 4]
+            colors = plot_graph(ax, G, colors, title=ds)
 
-    # no edges
-    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=10)
-    # nx.draw_networkx_labels(G, pos)
+        axs[3, 3].axis("off")
 
-    handles = [
-        mpatches.Patch(color=color, label=label) for label, color in colors.items()
-    ]
-    plt.legend(handles=handles, title="Method")
+        handles = [
+            mpatches.Patch(color=color, label=label) for label, color in colors.items()
+        ]
+        fig.legend(handles=handles, title="Method", loc="center")
+        plt.tight_layout()
 
-    if fig is not None:
-        plt.axis("off")
-        plt.savefig(fig, bbox_inches="tight")
+    if out is not None:
+        plt.savefig(out, bbox_inches="tight")
     else:
         plt.show()
 
