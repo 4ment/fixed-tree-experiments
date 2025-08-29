@@ -7,6 +7,7 @@ import networkx as nx
 import numpy as np
 from treezy import NewickReader, NexusReader, Tree
 from treezy.tree_metric import RobinsonFouldsMetric
+from pathlib import Path
 
 
 def check_taxa(tree, taxon_check):
@@ -19,7 +20,7 @@ def check_taxa(tree, taxon_check):
         for node in tree.nodes:
             if node.is_leaf and node.name != taxon_check[node.id]:
                 print(
-                    f"Taxon {node.name} has different id {node.id} {taxon_check[node.name]}"
+                    f"Taxon {node.name} has different id {node.id} {taxon_check[node.id]}"
                 )
                 exit(1)
     return taxon_check
@@ -34,8 +35,15 @@ def check_taxa(tree, taxon_check):
     type=click.Path(file_okay=True, dir_okay=False, path_type=str),
     help="revbayes tree file",
 )
+@click.option("--rb-burnin", type=int, default=1000, help="revbayes burnin")
+@click.option("--rb-step", type=int, default=1, help="revbayes step size")
 @click.option("--dic", type=click.File("r"), help="dic file")
-def cli(beast, iqtree, mcc, rb, dic):
+@click.option(
+    "--fig",
+    type=click.Path(dir_okay=False, writable=True, path_type=Path),
+    help="dic file",
+)
+def cli(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, fig):
     taxon_names = []
     rb_sets = defaultdict(int)
     beast_sets = defaultdict(int)
@@ -60,7 +68,8 @@ def cli(beast, iqtree, mcc, rb, dic):
             next(f)
             count = 0
             for idx, line in enumerate(f):
-                if idx > 10000 and idx % 10 == 0:
+                if idx > rb_burnin and idx % rb_step == 0:
+                    # if idx > 10000 and idx % 10 == 0:
                     line.strip()
                     newick = line[line.index("(") :]
                     tree = Tree.from_newick(newick)
@@ -140,7 +149,7 @@ def cli(beast, iqtree, mcc, rb, dic):
             print("iqtree set not in revbayes sets")
         print(f"Number of IQ-Tree trees: {1} # unique {iqtree_count} ({len(tree)})")
         methods.update(
-            {i + rev_count + beast_count: "iqtree" for i in range(len(iqtree_sets))}
+            {i + rev_count + beast_count: "IQ-TREE" for i in range(len(iqtree_sets))}
         )
 
     if mcc is not None:
@@ -196,7 +205,7 @@ def cli(beast, iqtree, mcc, rb, dic):
     colors = {
         "BEAST": "lightblue",
         "RevBayes": "green",
-        "iqtree": "orange",
+        "IQ-TREE": "orange",
         "MCC": "purple",
     }
 
@@ -213,7 +222,7 @@ def cli(beast, iqtree, mcc, rb, dic):
 
     # Draw network
     edges = G.edges(data=True)
-    
+
     # weights = [d["weight"] for (_, _, d) in edges]
     # nx.draw(G, pos, with_labels=True, node_color='lightblue', edge_color='gray', width=weights)
     # nx.draw_networkx_edge_labels(G, pos, edge_labels={(i,j): f"{d['weight']:.2f}" for i,j,d in edges})
@@ -229,7 +238,11 @@ def cli(beast, iqtree, mcc, rb, dic):
     ]
     plt.legend(handles=handles, title="Method")
 
-    plt.show()
+    if fig is not None:
+        plt.axis("off")
+        plt.savefig(fig, bbox_inches="tight")
+    else:
+        plt.show()
 
 
 if __name__ == "__main__":
