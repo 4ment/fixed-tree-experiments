@@ -9,7 +9,13 @@ output:
 
 ```{r setup, include=FALSE}
 library(tidyverse)
+library(conflicted)
+library(ggpubr)
 library(scales)
+library(ggbreak)
+
+conflict_prefer("filter", "dplyr")
+#library(scales)
 knitr::opts_chunk$set(fig.path='Figs/')
 ```
 
@@ -298,21 +304,21 @@ all_mean$type <- recode(all_mean$type,
                         "lsd2" = "LSD",
                         "treetime" = "TreeTime",
                         "map"="MSP",
-                        "rerooted"="Rerooted")
+                        "rerooted"="MRC")
 
 all_sd$type <- recode(all_sd$type,
                         "mcc" = "MCC",
                         "lsd2" = "LSD",
                         "treetime" = "TreeTime",
                         "map"="MSP",
-                        "rerooted"="Rerooted")
+                        "rerooted"="MRC")
 
 sky_mean$type <- recode(sky_mean$type,
                         "mcc" = "MCC",
                         "lsd2" = "LSD",
                         "treetime" = "TreeTime",
                         "map"="MSP",
-                        "rerooted"="Rerooted")
+                        "rerooted"="MRC")
 ```
 
 ```{r}
@@ -349,8 +355,8 @@ df_sd = df_all %>% filter(stat == "sd")
 ```
 
 ```{r}
-rerooted = df_mean %>% filter(Method == "Rerooted")
-same = df_mean %>% filter(Method != "Rerooted") %>% filter(Method %in% c("LSD", "TreeTime"))
+rerooted = df_mean %>% filter(Method == "MRC")
+same = df_mean %>% filter(Method != "MRC") %>% filter(Method %in% c("LSD", "TreeTime"))
 
 df2=rerooted %>% left_join(same, by = c("Dataset", "parameter", "stat", "model")) %>%
   rename(rerooted=value.x, heuristic=value.y) %>%
@@ -405,7 +411,10 @@ ggplot(df2, aes(x=unconstrained, y=constrained, col=type, shape=model)) +
 
 ```{r insensitive}
 df2 = df_mean %>% filter(model %in% c("subsmodel", "sitemodel"))
-#pdf("Figs/insensitive.pdf")
+
+df2$model = recode_factor(df2$model, "sitemodel"="Site", "subsmodel"="Substitution", "clock"="Clock", "tree"="Tree", "coalescent"="Coalescent")
+df2$Method = factor(df2$Method, levels=c("MCC", "MSP", "MRC", "LSD", "TreeTime"))
+
 ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
   geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
   theme_bw() +
@@ -434,17 +443,26 @@ ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
 - Tree: rootHeight, treeLength, tmrcas
 - Clock model: strict clock rate, meanRate (UCLN), *.rate of local clock
 
-```{r sensitive}
+```{r}
 df2 = df_mean %>% filter(model %in% c("coalescent", "tree", "clock"))  %>%
-  filter(!parameter %in% c("meanRate", "treeLength"))
-#pdf("Figs/sensitive.pdf")
+  #filter(!parameter %in% c("meanRate", "treeLength"))
+  filter(!parameter %in% c("treeLength"))
+df2$Method = factor(df2$Method, levels=c("MCC", "MSP", "MRC", "LSD", "TreeTime"))
+df2$model <- recode(df2$model,
+                        "clock" = "Clock",
+                        "coalescent" = "Coalescent",
+                        "tree" = "Tree")
+
 ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
-  geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  #geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  geom_point(aes(shape = model, group = model), position = position_dodge(width = 0.6)) +
   theme_bw() +
+  #scale_y_log10() +
+  #scale_y_break(c(7, 13)) +scale_y_break(c(15,32)) +
   theme(
     panel.grid = element_blank(),
     axis.line = element_line(linewidth = 0.4),
-    strip.background = element_blank(),
+    #strip.background = element_blank(),
     panel.border = element_blank(),
     legend.title = element_blank(),
     legend.background = element_blank(),
@@ -459,12 +477,99 @@ ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
   labs(y = "Relative error")
 ```
 
+```{r sensitive}
+df2$value2 = sign(df2$value) * log(1+abs(df2$value))
+signed_log <- function(y) sign(y) * log(1 + abs(y))
+
+ggplot(df2, aes(y = value2, col = Method, x = Dataset)) +
+  #geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  geom_point(aes(shape = model, group = model), position = position_dodge(width = 0.6)) +
+  geom_hline(yintercept=signed_log(0.25), linetype = "dashed") +
+  geom_hline(yintercept=signed_log(-0.25),linetype = "dashed") +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    #strip.background = element_blank(),
+    panel.border = element_blank(),
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  ) +
+  labs(y = "Relative error (signed-log scale)") +
+  scale_y_continuous(
+    breaks = signed_log(c(-5, -1, 0, 1, 5, 10, 20, 30)),  # where to place them
+    labels = c(-5, -1, 0, 2, 5, 10, 20, 30)               # what to show
+  )
+```
+
+```{r}
+df2 %>%
+  mutate(group = case_when(
+    value < -0.25             ~ "< -0.25",
+    value <= 0.25             ~ "[-0.25, 0.25]",
+    value > 0.25              ~ "> 0.25"
+  )) %>%
+  count(group)%>%
+  mutate(percent = 100 * n / sum(n))
+
+df2 %>% filter(Method %in% c('LSD','TreeTime')) %>%
+  mutate(group = case_when(
+    value < -0.25             ~ "< -0.25",
+    value <= 0.25             ~ "[-0.25, 0.25]",
+    value > 0.25              ~ "> 0.25"
+  )) %>%
+  count(group)%>%
+  mutate(percent = 100 * n / sum(n))
+
+df2 %>% filter(Method %in% c('MSP')) %>%
+  mutate(group = case_when(
+    value < -0.25             ~ "< -0.25",
+    value <= 0.25             ~ "[-0.25, 0.25]",
+    value > 0.25              ~ "> 0.25"
+  )) %>%
+  count(group)%>%
+  mutate(percent = 100 * n / sum(n))
+
+df2 %>% filter(Method %in% c('MSP','MCC')) %>%
+  mutate(group = case_when(
+    value < -0.25             ~ "< -0.25",
+    value <= 0.25             ~ "[-0.25, 0.25]",
+    value > 0.25              ~ "> 0.25"
+  )) %>%
+  count(group)%>%
+  mutate(percent = 100 * n / sum(n))
+
+df2 %>% select(-stat, -value2) %>%
+  pivot_wider(
+    id_cols = c(parameter, Dataset, model),
+    names_from = Method,
+    values_from = value
+  ) %>%
+  filter(!is.na(MRC))
+```
+
 ```{r re-mean}
 df2 = df_mean %>%
   filter(model %in% c("coalescent", "tree", "clock", "subsmodel", "sitemodel")) %>%
   filter(!parameter %in% c("meanRate", "treeLength"))
 
-#pdf("Figs/sensitive.pdf")
+df2$model = recode_factor(
+  df2$model,
+  "sitemodel" = "Site",
+  "subsmodel" = "Substitution",
+  "clock" = "Clock",
+  "tree" = "Tree",
+  "coalescent" = "Coalescent"
+)
+df2$Method = factor(df2$Method, levels = c("MCC", "MSP", "MRC", "LSD", "TreeTime"))
+
 ggplot(df2, aes(y = value, x = model, col = Method)) +
   #geom_jitter(width = 0.2, size = 1, aes(shape = Dataset)) +
   geom_boxplot() +
@@ -486,15 +591,16 @@ ggplot(df2, aes(y = value, x = model, col = Method)) +
     ),
     axis.title.x = element_blank()
   ) +
-  labs(y = "Relative error of mean") #+ ggtitle("Relative error of mean")
-#dev.off()
+  labs(x="Model", y = "Relative error") #+ ggtitle("Relative error of mean")
 ```
 
 ```{r}
 df2 = df_sd %>% filter(model %in% c("coalescent", "tree", "clock", "subsmodel", "sitemodel")) %>%
   filter(!parameter %in% c("meanRate", "treeLength"))
 
-#pdf("Figs/sensitive.pdf")
+df2$model = recode_factor(df2$model, "sitemodel"="Site", "subsmodel"="Substitution", "clock"="Clock", "tree"="Tree", "coalescent"="Coalescent")
+df2$Method = factor(df2$Method, levels=c("MCC", "MSP", "MRC", "LSD", "TreeTime"))
+
 ggplot(df2, aes(y = value, col = Method, x = model)) +
   #geom_jitter(width = 0.2, size = 1, aes(shape = Dataset)) +
   geom_boxplot() +
@@ -516,7 +622,6 @@ ggplot(df2, aes(y = value, col = Method, x = model)) +
   ) +
   labs(y = "Relative error") +
   ggtitle("Relative error of standard deviation")
-#dev.off()
 ```
 
 # Skygrid population size parameters
@@ -524,7 +629,6 @@ ggplot(df2, aes(y = value, col = Method, x = model)) +
 $RRMSE(\bf{\bar x}) = \sqrt{1/n \sum_i^n \left(\frac{\bar x_i - \bar x_i^{u}}{\bar x_i^{u}}\right)^2}$ where $\bar x_i^{u}$ is the $i^{th}$ mean population size parameter of the unconstrained run and $\bar x_i$ is the mean population size parameter for a constrained run.
 
 ```{r skygrids}
-#pdf("Figs/skygrids.pdf")
 uncons = sky_mean %>% filter(type == "unconstrained")
 cons = sky_mean %>% filter(type != "unconstrained")
 
@@ -537,7 +641,10 @@ df.pop = cons %>% full_join(uncons, by = c("dataset", "pop")) %>%
 
 ggplot(df.pop, aes(y = RMSRE, col = Method, x = Dataset)) +
   geom_jitter(width = 0.2, size = 1) +
-  scale_y_log10() +
+  geom_hline(yintercept=0.25,linetype = "dashed") +
+  scale_y_log10(breaks = c(0.001,0.01, 0.1, 1, 10, 100),
+  labels = c("0.001", "0.01", "0.1", "1", "10", "100")) +
+  labs(y = "RMSRE (log scale)") +
   theme_bw() +
   theme(
     panel.grid = element_blank(),
@@ -554,11 +661,59 @@ ggplot(df.pop, aes(y = RMSRE, col = Method, x = Dataset)) +
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
   )
-#dev.off() 
 ```
 
 ```{r}
-#pdf("Figs/skygrids.pdf")
+res=df.pop %>%
+  mutate(MethodGroup = case_when(
+    Method %in% c("LSD", "TreeTime") ~ "LSDtreetime",
+    Method %in% c("MCC", "MSP")      ~ "MCCMSP",
+    TRUE                             ~ Method
+  )) %>%
+  #group_by(MethodGroup, Dataset) %>%
+group_by(MethodGroup) %>%
+  summarise(mean_RMSE = mean(RMSRE), .groups = "drop")
+res
+res[[2]][1] /res[[2]][2]
+```
+
+```{r}
+df.pop %>%
+  mutate(group = case_when(
+    RMSRE < 0.25             ~ "< 0.25",
+    RMSRE >= 0.25              ~ "=> 0.25"
+  )) %>%
+  count(group)%>%
+  mutate(percent = 100 * n / sum(n))
+
+df.pop %>% filter(Method %in% c('LSD','TreeTime')) %>%
+  mutate(group = case_when(
+    RMSRE < 0.25             ~ "< 0.25",
+    RMSRE >= 0.25              ~ "=> 0.25"
+  )) %>%
+  count(group)%>%
+  mutate(percent = 100 * n / sum(n))
+
+df.pop %>% filter(Method %in% c('MSP','MCC')) %>%
+  mutate(group = case_when(
+    RMSRE < 0.25             ~ "< 0.25",
+    RMSRE >= 0.25              ~ "=> 0.25"
+  )) %>%
+  count(group)%>%
+  mutate(percent = 100 * n / sum(n))
+
+df.pop %>%
+  pivot_wider(
+    #id_cols = c(parameter, Dataset, model),
+    names_from = Method,
+    values_from = RMSRE
+  ) %>%
+  filter(!is.na(MRC))
+```
+
+```{r}
+df3 = df_mean %>% mutate(value=value**2)
+
 uncons = sky_mean %>% filter(type == "unconstrained")
 cons = sky_mean %>% filter(type != "unconstrained")
 
@@ -566,12 +721,22 @@ df.pop = cons %>% full_join(uncons, by = c("dataset", "pop")) %>%
   mutate(value = ((value.x - value.y) / value.y) ** 2) %>%
   select(type.x, value, dataset) %>%
   group_by(type.x, dataset) %>% summarise(sqrt_mean = sqrt(mean(value)), .groups = "drop") %>%
-  rename(Method = type.x, RRMSE = sqrt_mean, Dataset = dataset) %>% filter(Dataset != "ebov_mba21")
+  rename(Method = type.x, RRMSE = sqrt_mean, Dataset = dataset) %>%
+  mutate(model="coalescent2", stat="mean", parameter="skygrid") %>% rename(value=RRMSE)
+  
+df2 = df.pop %>%
+  bind_rows(df3) %>% filter(model %in% c("coalescent", "coalescent2", "tree", "clock"))  %>%
+  filter(!parameter %in% c("meanRate", "treeLength"))
+  #filter(!parameter %in% c("treeLength"))
 
+df2$Method = factor(df2$Method, levels=c("MCC", "MSP", "MRC", "LSD", "TreeTime"))
 
-ggplot(df.pop, aes(y = RRMSE, col = Method, x = Dataset)) +
-  geom_jitter(width = 0.2, size = 1) +
+#pdf("Figs/sensitive.pdf")
+ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
+  #geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  geom_point(aes(shape = model, group = model), position = position_dodge(width = 0.6)) +
   theme_bw() +
+  scale_y_log10() +
   theme(
     panel.grid = element_blank(),
     axis.line = element_line(linewidth = 0.4),
@@ -587,7 +752,494 @@ ggplot(df.pop, aes(y = RRMSE, col = Method, x = Dataset)) +
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
   ) +
-  labs(y = "RMSRE") + 
-  ggtitle("No ebov_mba21")
-#dev.off() 
+  labs(y = "Relative error")
 ```
+
+
+```{r}
+my_colors <- c(
+  "MCC" = "#0072B2",  # Blue
+  "MSP" = "#E69F00",  # Orange
+  "MRC" = "#009E73",  # Green
+  "LSD" = "#D55E00",  # Red
+  "TreeTime" = "#CC79A7",  # Purple
+  "Unconstrained" = "#999999"   # Grey
+)
+my_breaks = c("MCC", "MSP", "MRC", "LSD", "TreeTime", "Unconstrained")
+
+df_params = df_mean %>% filter(!parameter %in% c("treeLength")) %>% mutate(value=value**2) %>%
+  group_by(model,Dataset,Method)%>% summarize(value=mean(value), .groups = "drop") %>%
+  mutate(stat="mean")
+
+uncons = sky_mean %>% filter(type == "unconstrained")
+cons = sky_mean %>% filter(type != "unconstrained")
+
+df.pop = cons %>% full_join(uncons, by = c("dataset", "pop")) %>%
+  mutate(value = ((value.x - value.y) / value.y) ** 2) %>%
+  select(type.x, value, dataset) %>%
+  group_by(type.x, dataset) %>% summarise(sqrt_mean = sqrt(mean(value)), .groups = "drop") %>%
+  rename(Method = type.x, RRMSE = sqrt_mean, Dataset = dataset) %>%
+  mutate(model="coalescent", stat="mean") %>% rename(value=RRMSE)
+
+df2 = df.pop %>%
+  bind_rows(df_params) %>%
+  filter(model %in% c("coalescent", "tree", "clock"))
+
+df2$Method = factor(df2$Method,
+                    levels = c("Unconstrained", "MCC", "MSP", "MRC", "LSD", "TreeTime"))
+df2$model = recode_factor(
+  df2$model,
+  "sitemodel" = "Site",
+  "subsmodel" = "Substitution",
+  "clock" = "Clock",
+  "tree" = "Tree",
+  "coalescent" = "Coalescent"
+)
+
+order_dataset = df2 %>% group_by(Dataset) %>% summarize(mean_value = mean(value)) %>% arrange(desc(mean_value))
+#order_dataset <- rbind(head(order_dataset, 4), tail(order_dataset, 4))
+order_dataset <- rbind(head(order_dataset, 2), tail(order_dataset, 2))
+df2 = df2 %>% filter(Dataset %in% order_dataset$Dataset)
+                     
+#df2 = df2 %>% filter(Dataset %in% order_dataset[1:4] & Dataset %in% order_dataset[12:15])
+
+df2$Dataset = factor(df2$Dataset, order_dataset$Dataset)
+
+
+highlight_points <- df.pop %>% filter(Dataset=='ebov_mba21', model=="coalescent")
+
+highlight <- data.frame(
+  #xmin = min(highlight_points$x),
+  #xmax = max(highlight_points$x),
+  xmin = 1 - 0.4,
+  xmax = 1 + 0.4,
+  ymin = min(highlight_points$value),
+  ymax = max(highlight_points$value)
+)
+
+highlight_points_fluPb2_wor14 <- df.pop %>% filter(Dataset=='fluPb2_wor14', model=="coalescent")
+
+highlight_fluPb2_wor14 <- data.frame(
+  #xmin = min(highlight_points$x),
+  #xmax = max(highlight_points$x),
+  xmin = which(order_dataset=='fluPb2_wor14') - 0.4,
+  xmax = which(order_dataset=='fluPb2_wor14') + 0.4,
+  ymin = min(highlight_points_fluPb2_wor14$value),
+  ymax = max(highlight_points_fluPb2_wor14$value)
+)
+
+yLabeler <- function(x) {
+    sapply(x, function(val) {
+      if (val >= 1) {
+        scales::comma(val, accuracy = 1)
+      } else if (val >= 0.01) {
+        scales::comma(val, accuracy = 0.01)
+      } else if (val >= 0.001) {
+        scales::comma(val, accuracy = 0.001)
+      } else if (val >= 0.0001) {
+        scales::comma(val, accuracy = 0.0001)
+      } else if (val >= 1e-5) {
+        scales::comma(val, accuracy = 1e-5)
+      } else {
+        format(val, scientific = TRUE)
+      }
+    })
+}
+
+yLabeler <- function(x) {
+  sapply(x, function(xi) {
+    log10xi <- log10(xi)
+    if (abs(log10xi - round(log10xi)) < 1e-8) {
+      # exact power of ten
+      parse(text = paste0("10^", round(log10xi)))
+    } else {
+      # otherwise, just show number
+      format(xi, scientific = TRUE)
+    }
+  })
+}
+
+scatter_plot = ggplot(df2, aes(x = Dataset, y = value, color = Method)) +
+  #geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  geom_point(aes(shape = model, group = model), position = position_dodge(width = 0.5)) +
+  # geom_point(
+  #    data = data.frame(value = NA, Method = "Unconstrained"),
+  #    aes(x = value, y = NA, color = Method),
+  #    inherit.aes = FALSE
+  #  ) +
+  geom_point(
+    data = data.frame(Dataset = df2$Dataset[1], value = df2$value[1], Method = "Unconstrained", model = df2$model[1]),
+    aes(x = Dataset, y = value, color = Method)
+  ) +
+  theme_bw() +
+  #scale_y_log10(breaks=c(1000,10, 0.1, 0.001,1e-5), labels=yLabeler) +
+  scale_y_log10(breaks = c(1000,10, 0.1, 0.001,1e-5), labels =yLabeler)+
+  #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x), labels = math_format(10^.x))+
+  scale_color_manual(values = my_colors, breaks=my_breaks, guide = guide_legend(title = "Method", nrow = 1)) +
+  scale_shape_manual(
+    values = c("Clock" = 16, "Tree" = 17, "Coalescent" = 15),  # Example shapes
+    guide = guide_legend(title = "Model", nrow = 1)
+  ) +
+  # guides(
+  #   color = guide_legend(order = 1),
+  #   shape = guide_legend(order = 2)
+  # ) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.position="top",
+    legend.box = "vertical",           # Stack legends vertically
+    legend.spacing.y = unit(-0.5, "cm"),
+    legend.box.just = "left",
+    legend.spacing.x = unit(1, "cm"),
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  ) +
+    # geom_rect(data = highlight, inherit.aes = FALSE,
+    #         aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+    #         fill = NA, color = "red", linewidth = 1) +
+    # geom_rect(data = highlight_fluPb2_wor14, inherit.aes = FALSE,
+    #         aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+    #         fill = NA, color = "red", linewidth = 1) +
+  labs(y = "Mean squared relative error")
+  #scale_y_continuous(labels = scales::comma) +
+#annotate("text", x = 10, y = 1.5, label = "Legend for Methods and Models", size = 6, hjust = 0)
+scatter_plot
+```
+
+```{r eval=FALSE, include=FALSE}
+# Step 1: Store the true x-axis values
+dataset_levels <- unique(df2$Dataset)
+
+# Step 2: Build plot
+scatter_plot <- ggplot(df2) +
+  geom_point(
+    aes(shape = model, group = model, x = Dataset, y = value, color = Method),
+    position = position_dodge(width = 0.5)
+  ) +
+  # Step 3: Add dummy invisible point for legend
+  geom_point(
+    data = data.frame(Dataset = "dummy", value = 1, Method = "Unconstrained", model = NA),
+    aes(x = Dataset, y = value, color = Method, shape = model),
+    inherit.aes = FALSE,
+    alpha = 0
+  ) +
+  # Step 4: Set y and color scales
+  scale_y_log10(breaks = c(1000, 10, 0.1, 0.001, 1e-5), labels = yLabeler) +
+  scale_color_manual(values = c(my_colors, Unconstrained = "black")) +
+
+  # Step 5: Remove "dummy" from x-axis
+  scale_x_discrete(limits = dataset_levels) +
+
+  # Step 6: Styling
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.position = "top",
+    legend.key = element_rect(fill = NA, colour = NA, linewidth = 0.25),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1)
+  )
+scatter_plot
+
+```
+
+```{r}
+#load("~/Documents/projects/fixed-tree-experiments/lassaL_kli22.RData")
+make_boxplot <- function(dataset,parame,modele, xlabel){
+load(paste0(dataset, ".RData"))
+df3 = param %>%
+  #slice(seq(floor(0.5 * n()), n(), by = 5)) %>%
+  select(all_of(parame), type) %>% gather("param", "value", -type)
+
+df3$type <- recode(df3$type,
+                        "mcc" = "MCC",
+                        "lsd2" = "LSD",
+                        "treetime" = "TreeTime",
+                        "map"="MSP",
+                        "rerooted"="MRC",
+                        "unconstrained1"="Unconstrained")
+
+plt = ggplot(df3, aes(value, col = type)) +
+  #geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  #geom_density() +
+  geom_boxplot(outliers=F) +
+  scale_color_manual(values = my_colors) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.position="top",
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    #axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    axis.title.y=element_blank(),
+    axis.text.y=element_blank(),
+    axis.ticks.y=element_blank()
+  ) +
+  labs( x=xlabel) + guides(col="none")
+
+highlight_points = df_params %>% filter(Dataset==dataset& model==modele)
+
+  rectangle = data.frame(
+    xmin = which(order_dataset==dataset) - 0.4,
+    xmax = which(order_dataset==dataset) + 0.4,
+    ymin = min(highlight_points$value),
+    ymax = max(highlight_points$value)
+  )
+  list(plot=plt, rectangle=rectangle)
+}
+
+root_lassa = make_boxplot("lassaL_kli22", parame="rootHeight", modele="tree", xlabel="Root age")
+rate_wnv = make_boxplot("wnv_del20", parame="meanRate", modele="clock", xlabel="Mean rate")
+root_lassa
+rate_wnv
+```
+
+```{r}
+#load("~/Documents/projects/fixed-tree-experiments/lassaL_kli22.RData")
+make_boxplot_grid <- function(datasets, params, models, xlabels){
+  df3 = NULL
+  for(i in seq_along(datasets)){
+load(paste0(datasets[i], ".RData"))
+df3 = param %>%
+  #slice(seq(floor(0.5 * n()), n(), by = 5)) %>%
+  select(all_of(params[i]), type) %>% gather("param", "value", -type) %>%
+  mutate(dataset=datasets[i], label=xlabels[i]) %>%
+  bind_rows(df3)
+
+highlight_points = df_params %>% filter(Dataset==datasets[i]& model==models[i])
+
+  rectangle = data.frame(
+    xmin = which(order_dataset==datasets[i]) - 0.4,
+    xmax = which(order_dataset==datasets[i]) + 0.4,
+    ymin = min(highlight_points$value),
+    ymax = max(highlight_points$value)
+  )
+}
+df3$type <- recode(df3$type,
+                        "mcc" = "MCC",
+                        "lsd2" = "LSD",
+                        "treetime" = "TreeTime",
+                        "map"="MSP",
+                        "rerooted"="MRC",
+                        "unconstrained1"="Unconstrained")
+
+plt = ggplot(df3, aes(x=type,y=value, col = type)) +
+  geom_boxplot(outliers=F) +
+  scale_color_manual(values = my_colors) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(linewidth = 0.4),
+    strip.background = element_blank(),
+    panel.border = element_blank(),
+    legend.title = element_blank(),
+    legend.background = element_blank(),
+    legend.position="top",
+    legend.key = element_rect(
+      fill = NA,
+      colour = NA,
+      linewidth = 0.25
+    ),
+    strip.placement = "outside",
+    
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    #axis.title.x=element_blank(),
+    #axis.text.x=element_blank(),
+    #axis.ticks.x=element_blank()
+    axis.ticks.y=element_blank(),
+    axis.text.y=element_blank()
+  ) +
+  facet_wrap(vars(dataset), scale="free", nrow=2, 
+                strip.position = "bottom", 
+                labeller = as_labeller(c(lassaL_kli22 = "Root age", wnv_del20 = "Mean rate"))) +
+  labs( x=NULL,y=NULL) + 
+    guides(col="none") + coord_flip()
+
+  plt
+}
+
+#root_lassa = make_boxplot("lassaL_kli22", parame="rootHeight", modele="tree", xlabel="Root age")
+#rate_wnv = make_boxplot("wnv_del20", parame="meanRate", modele="clock", xlabel="Mean rate")
+
+make_boxplot_grid(c("lassaL_kli22", "wnv_del20"), c("rootHeight", "meanRate"), c("tree","clock"), c("Root age","Mean rate"))
+```
+
+
+```{r}
+
+make_skyplot <- function(dataset1, grid_points, youngest){
+  df_temp = data.frame(pop=paste0("skygrid.logPopSize", seq(1,50)), grid=grid_points)
+  pop = sky_mean %>% filter(dataset==dataset1) %>% left_join(df_temp, by="pop") %>% mutate(value=exp(value))
+  
+  pop$type <- recode(pop$type,
+                          "mcc" = "MCC",
+                          "lsd2" = "LSD",
+                          "treetime" = "TreeTime",
+                          "map"="MSP",
+                          "rerooted"="MRC",
+                          "unconstrained1"="Unconstrained")
+  
+  plt = ggplot(pop, aes(x=grid, y=value, col=type))+
+    theme_bw() +
+    #scale_y_log10() +
+    scale_color_manual(values = my_colors) +
+    theme(
+      panel.grid = element_blank(),
+      axis.line = element_line(linewidth = 0.4),
+      strip.background = element_blank(),
+      panel.border = element_blank(),
+      legend.title = element_blank(),
+      legend.background = element_blank(),
+      legend.key = element_rect(
+        fill = NA,
+        colour = NA,
+        linewidth = 0.25
+      ),
+      axis.text.x = element_text(angle = 30, hjust = 1)
+    ) +
+    geom_line() +
+    scale_x_reverse() +
+    #scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x), labels = trans_format("log10", math_format(10^.x))) +
+    xlab("Year") +
+    ylab("Mean effective population size")  + guides(col="none")
+  
+  highlight_points <- df.pop %>% filter(Dataset==dataset1, model=="coalescent")
+  
+  rectangle <- data.frame(
+    #xmin = min(highlight_points$x),
+    #xmax = max(highlight_points$x),
+    xmin = which(order_dataset==dataset1) - 0.4,
+    xmax = which(order_dataset==dataset1) + 0.4,
+    ymin = min(highlight_points$value),
+    ymax = max(highlight_points$value)
+  )
+  
+  list(plot=plt, rectangle=rectangle)
+}
+
+sky_ebov_mba = make_skyplot('ebov_mba21', rev(2020.1284153005465 - seq(0, 1.75, length.out = 50)))
+#sky_ebov_dud = make_skyplot('ebov_dud17', rev(2020.327868852459 - seq(0, 2, length.out = 50)))
+sky_pb2_wor = make_skyplot('fluPb2_wor14', rev(2011.4 - seq(0, 150, length.out = 50)))
+sky_ebov_mba
+sky_pb2_wor
+```
+```{r}
+make_skyplot_grid <- function(){
+  df_temp_mba = data.frame(pop=paste0("skygrid.logPopSize", seq(1,50)), grid=rev(2020.1284153005465 - seq(0, 1.75, length.out = 50))) %>% mutate(dataset="ebov_mba21")
+  df_temp_wor = data.frame(pop=paste0("skygrid.logPopSize", seq(1,50)), grid=rev(2011.4 - seq(0, 150, length.out = 50))) %>% mutate(dataset="fluPb2_wor14")
+  df_temp = rbind(df_temp_mba,df_temp_wor)
+  pop = sky_mean %>% filter(dataset%in% c('ebov_mba21', 'fluPb2_wor14')) %>% left_join(df_temp, by=c("pop","dataset")) %>% mutate(value=exp(value))
+  
+  pop$type <- recode(pop$type,
+                          "mcc" = "MCC",
+                          "lsd2" = "LSD",
+                          "treetime" = "TreeTime",
+                          "map"="MSP",
+                          "rerooted"="MRC",
+                          "unconstrained1"="Unconstrained")
+  
+  plt = ggplot(pop, aes(x=grid, y=value, col=type))+
+    theme_bw() +
+    #scale_y_log10() +
+    scale_color_manual(values = my_colors) +
+    theme(
+      panel.grid = element_blank(),
+      axis.line = element_line(linewidth = 0.4),
+      strip.background = element_blank(),
+      panel.border = element_blank(),
+      legend.title = element_blank(),
+      legend.background = element_blank(),
+      legend.key = element_rect(
+        fill = NA,
+        colour = NA,
+        linewidth = 0.25
+      ),
+      axis.text.x = element_text(angle = 30, hjust = 1)
+    ) +
+    geom_line() +
+    facet_wrap(vars(dataset), scales="free", nrow=2) +
+    scale_x_reverse() +
+    xlab("Year") +
+    ylab("Mean effective population size")  + guides(col="none")
+  plt
+}
+
+make_skyplot_grid()
+```
+
+```{r subpanels}
+left = ggarrange(sky_ebov_mba$plot+ylab(NULL), sky_pb2_wor$plot+ylab(NULL),
+          labels = c("A", "B"),label.x = 0.3,#common.legend = TRUE, legend = "right"
+          ncol = 1, nrow = 2, align = "v") + theme(plot.margin = margin(5, 5, 8, 5))
+left = annotate_figure(left, left = text_grob("Mean effective population size", rot = 90))
+#left = make_skyplot_grid()
+right = ggarrange(root_lassa$plot, rate_wnv$plot,
+          labels = c("D", "E"), label.x = 0.05,#-0.07,
+          ncol = 1, nrow = 2)
+#right = make_boxplot_grid(c("lassaL_kli22", "wnv_del20"), c("rootHeight", "meanRate"), c("tree","clock"), c("Root age","Mean rate"))
+
+scatter_plot2 = scatter_plot + theme(plot.margin = margin(5, 5, 9, 5)) +
+  geom_rect(data = root_lassa$rect,
+            inherit.aes = FALSE,
+            aes(xmin = xmin+0.3, xmax = xmax-0.3, ymin = ymin*0.5, ymax = ymax+5),
+            fill = NA, color = "black", linewidth = 0.5)+
+  annotate(
+    "text", label = "D",
+    x = root_lassa$rect$xmax-0.3, y = root_lassa$rect$ymax*3, size = 4, colour = "black"
+  ) +
+  geom_rect(data = rate_wnv$rect, inherit.aes = FALSE,
+            aes(xmin = xmin+0.1, xmax = xmax-0.47, ymin = ymin*0.5, ymax = ymax*1.5),
+            fill = NA, color = "black", linewidth = 0.5)+
+  annotate(
+    "text", label = "E",
+    x = rate_wnv$rect$xmax-0.6, y = rate_wnv$rect$ymax*3, size = 4, colour = "black"
+  ) +
+  geom_rect(data = sky_ebov_mba$rect,
+            inherit.aes = FALSE,
+            aes(xmin = xmin+0.45, xmax = xmax-0.1, ymin = ymin*0.5, ymax = ymax*1.5),
+            fill = NA, color = "black", linewidth = 0.5) +
+  annotate(
+    "text", label = "A",
+    x = sky_ebov_mba$rect$xmax, y = sky_ebov_mba$rect$ymax*3, size = 4, colour = "black"
+  ) +
+  geom_rect(data = sky_pb2_wor$rect, inherit.aes = FALSE,
+            aes(xmin = xmin+0.45, xmax = xmax-0.1, ymin = ymin*0.05, ymax = ymax*1.5),
+            fill = NA, color = "black", linewidth = 0.5) +
+  annotate(
+    "text", label = "B",
+    x = sky_pb2_wor$rect$xmax, y = sky_pb2_wor$rect$ymax*3, size = 4, colour = "black"
+  )
+  
+figure = ggarrange(left, scatter_plot2, right,
+          labels = c("", "C"), label.x = 0.07,
+          widths = c(1,2,1),
+          ncol = 3, nrow = 1,  common.legend = TRUE)
+figure
+#annotate_figure(figure, left = text_grob("Mean effective population size", rot = 90))
+```
+

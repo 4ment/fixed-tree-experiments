@@ -5,7 +5,10 @@ channels:
   - defaults
 dependencies:
   - click
+  - matplotlib
+  - networkx
   - nextflow=23.04.1
+  - numpy
   - treetime=0.11.4
   - pandoc
   - pip

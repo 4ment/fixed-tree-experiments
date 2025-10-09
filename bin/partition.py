@@ -23,9 +23,18 @@ if sequence:
 
 for partition in partitions:
     if partition.startswith("::"):
+        # Handle partition format like "::3"
         slice_indices = slice(None, None, int(partition.split(":")[-1]))
     elif partition.startswith(":"):
+        # Handle partition format like ":3:2" or ":3"
         slice_indices = slice(None, *list(map(int, partition.split(":")[1:])))
+    elif "::" in partition:
+        # Handle partition format like "3::2" or "3::"
+        list_indices = partition.split("::")
+        list_indices[0] = int(list_indices[0]) - 1
+        list_indices[1] = None
+        list_indices[2] = int(list_indices[2]) if list_indices[2] != "" else None
+        slice_indices = slice(*list_indices)
     else:
         list_indices = list(map(int, partition.split(":")))
         list_indices[0] -= 1

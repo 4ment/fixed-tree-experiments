@@ -1,4 +1,7 @@
+import os
+import pickle
 from collections import defaultdict
+from pathlib import Path
 
 import click
 import matplotlib.patches as mpatches
@@ -7,7 +10,6 @@ import networkx as nx
 import numpy as np
 from treezy import NewickReader, NexusReader, Tree
 from treezy.tree_metric import RobinsonFouldsMetric
-from pathlib import Path
 
 
 def check_taxa(tree, taxon_check):
@@ -24,6 +26,10 @@ def check_taxa(tree, taxon_check):
                 )
                 exit(1)
     return taxon_check
+
+
+def canonicalize_value(bitset):
+    return bitset.value if bitset[0] else (~bitset).value
 
 
 def plot_graph(ax, G, colors, title=None):
@@ -80,7 +86,7 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
                     rb_sets[
                         frozenset(
                             [
-                                n.descendant_bitset.value
+                                canonicalize_value(n.descendant_bitset)
                                 for n in tree.nodes
                                 if not n.is_root and not n.is_leaf
                             ]
@@ -105,7 +111,7 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
                     beast_sets[
                         frozenset(
                             [
-                                n.descendant_bitset.value
+                                canonicalize_value(n.descendant_bitset)
                                 for n in tree.nodes
                                 if not n.is_root and not n.is_leaf
                             ]
@@ -129,7 +135,7 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
         tree.compute_descendant_bitset()
         bitsets = frozenset(
             [
-                n.descendant_bitset.value
+                canonicalize_value(n.descendant_bitset)
                 for n in tree.nodes
                 if not n.is_root and not n.is_leaf
             ]
@@ -156,7 +162,7 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
         mcc_sets[
             frozenset(
                 [
-                    n.descendant_bitset.value
+                    canonicalize_value(n.descendant_bitset)
                     for n in tree.nodes
                     if not n.is_root and not n.is_leaf
                 ]
@@ -180,9 +186,24 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
 
     mat = np.zeros((n, n))
     metric = RobinsonFouldsMetric()
+
+    beast_rf = []
+    iqtree_rf = []
     for i in range(n):
         for j in range(i + 1, n):
             mat[i, j] = mat[j, i] = metric.compute_from_sets(uniq_sets[i], uniq_sets[j])
+            if i < beast_count and j < beast_count:
+                beast_rf.extend(
+                    [mat[i, j]] * (beast_sets[uniq_sets[i]] * beast_sets[uniq_sets[j]])
+                )
+            elif i < beast_count and j == beast_count:
+                iqtree_rf.extend(
+                    [mat[i, j]] * (beast_sets[uniq_sets[i]] * iqtree_sets[uniq_sets[j]])
+                )
+
+    beast_rf = np.array(beast_rf)
+    iqtree_rf = np.array(iqtree_rf)
+    print((np.mean(iqtree_rf) - np.mean(beast_rf)) / np.std(beast_rf))
 
     max_dist = np.max(mat[np.triu_indices_from(mat, k=1)])
     similarity = 1 - mat / max_dist
@@ -228,15 +249,26 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
     is_flag=True,
     help="Run all dataset",
 )
-def cli(multi, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, out):
+@click.option(
+    "--load", type=click.Path(exists=True, file_okay=False), help="Load from pickles"
+)
+@click.option(
+    "--save",
+    type=click.Path(exists=True, file_okay=False, writable=True),
+    help="Save to pickles",
+)
+def cli(multi, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, out, load, save):
+    if load and save:
+        raise click.UsageError("Options --load and --save cannot be used together.")
+
     colors = {
-        "BEAST": "lightblue",
+        "BEAST": "#D3D3D3",
         # "RevBayes": "green",
-        "IQ-TREE": "orange",
-        "MCC": "purple",
+        "IQ-TREE": "#009E73",
+        "MCC": "#D55E00",
     }
 
-    if multi == False:
+    if not multi:
         G = build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic)
         fig, ax = plt.subplots(figsize=(10, 10))
         plot_graph(ax, G, colors)
@@ -261,13 +293,26 @@ def cli(multi, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, out):
         fig, axs = plt.subplots(4, 4, figsize=(15, 15))
         for i, ds in enumerate(datasets):
             print(ds)
-            beast = open(f"ssstree_datasets/{ds}/run01.trees", "r")
-            iqtree = open(
-                f"results-iqtree-part/datasets/{ds}/iqtree2/ali.fasta.treefile", "r"
-            )
-            mcc = open(f"ssstree_datasets/{ds}/run01_burninNgen200000000_MCC.tree", "r")
-            dic = open(f"results-iqtree-part/datasets/{ds}/iqtree2/dic.csv", "r")
-            G = build_graph(beast, iqtree, mcc, None, -1, -1, dic)
+
+            if load is None:
+                beast = open(f"ssstree_datasets/{ds}/run01.trees", "r")
+                iqtree = open(
+                    f"results-iqtree-part/datasets/{ds}/iqtree2/ali.fasta.treefile", "r"
+                )
+                mcc = open(
+                    f"ssstree_datasets/{ds}/run01_burninNgen200000000_MCC.tree", "r"
+                )
+                dic = open(f"results-iqtree-part/datasets/{ds}/iqtree2/dic.csv", "r")
+
+                G = build_graph(beast, iqtree, mcc, None, -1, -1, dic)
+
+                if save is not None:
+                    with open(os.path.join(save, f"{ds}.pickle"), "wb") as f:
+                        pickle.dump(G, f)
+            else:
+                with open(os.path.join(load, f"{ds}.pickle"), "rb") as f:
+                    G = pickle.load(f)
+
             ax = axs[i // 4, i % 4]
             colors = plot_graph(ax, G, colors, title=ds)
 
