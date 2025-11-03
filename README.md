@@ -56,6 +56,8 @@ export NXF_CONDA_CACHEDIR=$HOME/miniconda3/envs
 nextflow run main.nf
 ```
 
+This command creates a `results/` directory in the pipeline working directory. The directory contains all intermediate and final outputs needed to generate the figures.
+
 ## Generate figures
 The results can be visualized using the included R Markdown report. Required R packages are managed with `renv`. Run once:
 ```
@@ -67,6 +69,12 @@ Then render the results to a PDF:
 Rscript -e 'rmarkdown::render("plot.Rmd")'
 ```
 
+### Generate network graphs
+```
+python scripts/build-net.py --multi --results results --out plot.pdf
+```
+
+This script will create a pdf file containing the graphs and it will also generate a file containing z-scores contained in the manuscript.
 
 [BEAGLE]: https://github.com/beagle-dev/beagle-lib
 [BEAST]: https://github.com/beast-dev/beast-mcmc

@@ -50,67 +50,6 @@ kl_l <- function(x, y) {
 }
 ```
 
-```{r eval=FALSE, include=FALSE}
-# ebov_dud17
-#c("cp1.kappa", "ig.kappa", "cp1.alpha", "ig.alpha", "cp1.mu", "ig.mu", "cp1.frequencies","ig.frequencies")
-#c("ucld.mean", "ucld.stdev", "meanRate")
-
-# ebov_mba21
-# c("cp12.kappa", "cp3.kappa", "cp12.alpha", "cp3.alpha", "cp12.mu", "cp3.mu", "cp12.frequencies", "cp3.frequencies")
-# c("ucld.mean", "ucld.stdev", "meanRate")
-
-# fluH1L_bed15
-# c("cp12.kappa", "cp3.kappa", "cp12.frequencies", "cp3.frequencies", "cp12.mu", "cp3.mu")
-# c("constant.popSize", "clock.rate")
-
-# fluH3L_bed15
-# c("cp12.kappa", "cp3.kappa", "cp12.frequencies", "cp3.frequencies", "cp12.mu", "cp3.mu")
-# c("constant.popSize", "clock.rate")
-
-# fluPb2_wor14
-# c("cp12.kappa", "cp3.kappa", "cp12.frequencies", "cp3.frequencies", "cp12.mu", "cp3.mu")
-# c(equine.rate","galliform1.rate","human1.rate","shorebird1.rate","swine1.rate","swine2.rate","swine3.rate")
-
-# fluVicL_bed15
-# c("cp12.kappa", "cp3.kappa", "cp12.frequencies", "cp3.frequencies", "cp12.mu", "cp3.mu")
-# c("ucld.mean", "ucld.stdev", "meanRate")
-
-# hiv_far14
-# c("gtr.rates", "frequencies", "alpha")
-# c("ucld.mean", "ucld.stdev", "meanRate")
-
-# lassaL_kli22
-# c("gtr.rates", "frequencies", "alpha")
-# c("ucld.mean", "ucld.stdev", "meanRate")
-
-# mumps_mon21
-# c("gtr.rates", "frequencies", "alpha")
-# c("clock.rate")
-
-# rabies_via23
-# c("cp12.gtr.rates", "cp3.gtr.rates", "nc.gtr.rates", "cp12.alpha", "cp3.alpha", "nc.alpha", "cp12.frequencies" "cp3.frequencies", "nc.frequencies", "cp12.mu", "cp3.mu", "nc.mu")
-# c("ucld.mean", "ucld.stdev", "meanRate")
-
-# sars2_can20
-# c("kappa", "frequencies", "alpha")
-# c("clock.rate")
-
-# sars2_lem21
-# c("kappa", "frequencies", "alpha")
-# c("clock.rate")
-
-# sars2_pek22
-# c("gtr.rates", "frequencies", "pInv")
-# c("clock.rate")
-
-# wnv_del20
-# c("gtr.rates", "frequencies", "alpha")
-# c("ucld.mean", "ucld.stdev", "meanRate")
-
-# zikv_gru19
-# c("cp1.kappa", "cp2.kappa", "cp3.kappa", "cp1.alpha", "cp2.alpha", "cp3.alpha", "cp1.mu", "cp2.mu", "cp3.mu", "cp1.frequencies", "cp2.frequencies", "cp3.frequencies"/>
-# c("ucld.mean", "ucld.stdev", "meanRate")
-```
 
 ```{r eval=FALSE, include=FALSE}
 datasets = c("fluH3L_bed15", "lassaL_kli22", "wnv_del20", "sars2_lem21", "ebov_dud17",
@@ -188,7 +127,7 @@ datasets = c(
   "sars2_pek22",
   "zikv_gru19"
 )
-#c("map"="HPT", "lsd2"="LSD", "mcc"= "MCC", "treetime"="TreeTime", "unconstrained"="Unconstrained", "rerooted"="IQ-TREE/rooted")
+
 all_mean = NULL
 all_sd = NULL
 sky_mean = NULL
@@ -273,28 +212,6 @@ for (dataset in datasets) {
   }
 }
 save(all_mean, all_sd, sky_mean, sky_sd, file = "summary.RData")
-```
-
-```{r eval=FALSE, include=FALSE}
-for(dataset in c("rabies_via23")){
-  for(type in c()){
-df.log <- read_tsv(file.path("results-treetime", "datasets", dataset, paste0("param_run", "0", 1, ".log")),
-    skip = 3, show_col_types = FALSE
-  )
-rate_name <- intersect(c("meanRate", "clock.rate", "avian.rate"), names(df.log))
-  df.log <- df.log[seq(1, nrow(df.log), 5), ]
-  param2 <- df.log[as.integer(0.5 * nrow(df.log)):nrow(df.log), ] %>%
-    #select(any_of(c("rootHeight", "clock.rate", "treeLength", "pInv", "skygrid.precision"))) %>% # sars2_pek22
-    select(any_of(c("rootHeight", "meanRate", "treeLength", "cp12.alpha", "cp12.mu", "skygrid.precision"))) %>% #rabies_via23
-    mutate(type = "rerooted") %>% mutate(!!"rate" := .[[rate_name[1]]])
-  
-  all_mean = param2 %>% group_by(type) %>%
-    summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>%
-    pivot_longer(!type, names_to = "parameter", values_to = "value") %>%
-    mutate(dataset = dataset) %>%
-    bind_rows(all_mean)
-  }
-}
 ```
 
 ```{r}
@@ -434,7 +351,17 @@ ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
     axis.text.x = element_text(angle = 30, hjust = 1)
   ) +
   labs(y = "Relative error")
-#dev.off()
+```
+
+```{r}
+df2 %>%
+  mutate(group = case_when(
+    value < -0.25             ~ "< -0.25",
+    value <= 0.25             ~ "[-0.25, 0.25]",
+    value > 0.25              ~ "> 0.25"
+  )) %>%
+  count(group)%>%
+  mutate(percent = 100 * n / sum(n))
 ```
 
 # Clock, coalescent, tree parameters/statistics
@@ -502,7 +429,7 @@ ggplot(df2, aes(y = value2, col = Method, x = Dataset)) +
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
   ) +
-  labs(y = "Relative error (signed-log scale)") +
+  labs(y = expression("Relative error (signed-log" [e] * " scale)")) +
   scale_y_continuous(
     breaks = signed_log(c(-5, -1, 0, 1, 5, 10, 20, 30)),  # where to place them
     labels = c(-5, -1, 0, 2, 5, 10, 20, 30)               # what to show
@@ -644,7 +571,8 @@ ggplot(df.pop, aes(y = RMSRE, col = Method, x = Dataset)) +
   geom_hline(yintercept=0.25,linetype = "dashed") +
   scale_y_log10(breaks = c(0.001,0.01, 0.1, 1, 10, 100),
   labels = c("0.001", "0.01", "0.1", "1", "10", "100")) +
-  labs(y = "RMSRE (log scale)") +
+  labs(y = expression("RMSRE (log" [10] * " scale)")) +
+
   theme_bw() +
   theme(
     panel.grid = element_blank(),

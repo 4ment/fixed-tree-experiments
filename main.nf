@@ -166,11 +166,11 @@ process RUN_TREEANNOTATOR{
   input:
     tuple val(dataset), path(trees_file)
   output:
-    tuple val(dataset), val("mcc"), path("${trees_file}-mcc.tree")
-    path("${trees_file}-mcc.nexus")
+    tuple val(dataset), val("mcc"), path("mcc.tree")
+    path("mcc.nexus")
   """
-  treeannotator -burninTrees 200000000 ${trees_file} ${trees_file}-mcc.nexus
-  helper.py nexus2newick --input ${trees_file}-mcc.nexus --output ${trees_file}-mcc.tree
+  treeannotator -burninTrees 200000000 ${trees_file} mcc.nexus
+  helper.py nexus2newick --input mcc.nexus --output mcc.tree
   """
 }
 
