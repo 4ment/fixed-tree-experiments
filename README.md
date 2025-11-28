@@ -1,5 +1,9 @@
 # fixed-tree-experiments
 
+## Data
+The BEAST XML configuration files are located in [ssstree_datasets](ssstree_datasets/).
+Due to data sharing limitations, sequences for the SARS-CoV-2 datasets need to be downloaded from GISAID. These folders contain a `gisaid.txt` file containing the GISAID accession IDs.
+
 ## Dependencies
 
 This project requires the following phylogenetic inference tools:
@@ -46,7 +50,7 @@ conda env create -f environment.yml
 conda activate fixed-tree
 ```
 
-You may need to set the `NXF_CONDA_CACHEDIR` variable for nextflow to locate the conda environment
+You may need to set the `NXF_CONDA_CACHEDIR` variable for nextflow to locate the conda environment. You need to do something like this:
 ```
 export NXF_CONDA_CACHEDIR=$HOME/miniconda3/envs
 ```
@@ -66,12 +70,14 @@ Rscript -e 'renv::restore()'
 
 Then render the results to a PDF:
 ```
-Rscript -e 'rmarkdown::render("plot.Rmd")'
+Rscript -e 'rmarkdown::render("summary.Rmd")'
 ```
 
 ### Generate network graphs
+The network figure is generated separately using a python script. The python script dependencies are included in the conda environment *fixed-tree*.
+
 ```
-python scripts/build-net.py --multi --results results --out plot.pdf
+python scripts/build-net.py --multi --results results --out networks.pdf
 ```
 
 This script will create a pdf file containing the graphs and it will also generate a file containing z-scores contained in the manuscript.

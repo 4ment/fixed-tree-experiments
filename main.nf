@@ -32,7 +32,7 @@ process RUN_REVBAYES {
   """
   helper.py rename --input ${params.datasets}/${dataset}/ali.fasta --output ali-renamed.fasta --dic_out dic.csv
   if [ "${dataset}" = "ebov_dud17" ]; then
-    partition.py ${params.datasets}/${dataset}/ali-renamed.fasta 1:14517 14518:18992
+    partition.py ali-renamed.fasta 1:14517 14518:18992
   fi
   rb ${params.datasets}/${dataset}/script.Rev
   """
@@ -140,6 +140,7 @@ process RUN_BEAST{
     path("prob_run01.log")
     path("*.log")
   """
+  sed 's/\\(chainLength="\\)[0-9]\\{1,\\}/\\11000/' ${params.datasets}/${dataset}/run01.xml > run01.xml
   beast run01.xml
   """
 }
