@@ -1,6 +1,6 @@
 import os
 import pickle
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import OrderedDict
 
@@ -30,8 +30,136 @@ def check_taxa(tree, taxon_check):
     return taxon_check
 
 
-def canonicalize_value(bitset):
+def canonicalize_value(bitset) -> int:
     return bitset.value if bitset[0] else (~bitset).value
+
+
+def weighted_rf_matrix(
+    beast_dicts: list[dict[int, float]],
+    iqtree_dict: dict[int, float],
+    mcc_dict: dict[int, float],
+):
+    beast_count = len(beast_dicts)
+    n = len(beast_dicts) + 2
+    mat = np.zeros((n, n))
+    metric = RobinsonFouldsMetric()
+
+    beast_rf = []
+    iqtree_rf = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            # Determine which dict corresponds to index i
+            if i < beast_count:
+                dict_i = beast_dicts[i]
+            elif i == beast_count:
+                dict_i = iqtree_dict
+            else:  # i == beast_count + 1
+                dict_i = mcc_dict
+
+            # Determine which dict corresponds to index j
+            if j < beast_count:
+                dict_j = beast_dicts[j]
+            elif j == beast_count:
+                dict_j = iqtree_dict
+            else:
+                dict_j = mcc_dict
+
+            # Compute weighted RF
+            mat[i, j] = mat[j, i] = metric.compute_from_splits(dict_i, dict_j)
+
+            if i < beast_count and j < beast_count:
+                beast_rf.append(mat[i, j])
+            elif i < beast_count and j == beast_count:
+                iqtree_rf.append(mat[i, j])
+
+    beast_rf = np.array(beast_rf)
+    iqtree_rf = np.array(iqtree_rf)
+    z_score = (np.mean(iqtree_rf) - np.mean(beast_rf)) / np.std(beast_rf)
+    print(beast_rf.shape, iqtree_rf.shape)
+    print(z_score)
+
+    max_dist = np.max(mat[np.triu_indices_from(mat, k=1)])
+    similarity = 1 - mat / max_dist
+
+    beast_rf = []
+    iqtree_rf = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if i < beast_count and j < beast_count:
+                beast_rf.append(similarity[i, j])
+            elif i < beast_count and j == beast_count:
+                iqtree_rf.append(similarity[i, j])
+
+    beast_rf = np.array(beast_rf)
+    iqtree_rf = np.array(iqtree_rf)
+    print((np.mean(iqtree_rf) - np.mean(beast_rf)) / np.std(beast_rf))
+
+    return similarity, z_score
+
+
+def rf_matrix(
+    beast_sets: dict[set, int],
+    iqtree_sets: dict[set, int],
+    mcc_sets: dict[set, int],
+    rb_sets: dict[set, int],
+):
+    beast_count = len(beast_sets)
+    n = len(beast_sets) + len(rb_sets) + len(iqtree_sets) + len(mcc_sets)
+    uniq_sets = (
+        list(rb_sets.keys())
+        + list(beast_sets.keys())
+        + list(iqtree_sets.keys())
+        + list(mcc_sets.keys())
+    )
+
+    mat = np.zeros((n, n))
+    metric = RobinsonFouldsMetric()
+
+    beast_rf = []
+    iqtree_rf = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            mat[i, j] = mat[j, i] = metric.compute_from_splits(
+                uniq_sets[i], uniq_sets[j]
+            )
+            if i < beast_count and j < beast_count:
+                beast_rf.extend(
+                    [mat[i, j]] * (beast_sets[uniq_sets[i]] * beast_sets[uniq_sets[j]])
+                )
+            elif i < beast_count and j == beast_count:
+                iqtree_rf.extend(
+                    [mat[i, j]] * (beast_sets[uniq_sets[i]] * iqtree_sets[uniq_sets[j]])
+                )
+
+    beast_rf = np.array(beast_rf)
+    iqtree_rf = np.array(iqtree_rf)
+    z_score = (np.mean(iqtree_rf) - np.mean(beast_rf)) / np.std(beast_rf)
+    print(beast_rf.shape, iqtree_rf.shape)
+    print(z_score)
+
+    max_dist = np.max(mat[np.triu_indices_from(mat, k=1)])
+    similarity = 1 - mat / max_dist
+
+    beast_rf = []
+    iqtree_rf = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if i < beast_count and j < beast_count:
+                beast_rf.extend(
+                    [similarity[i, j]]
+                    * (beast_sets[uniq_sets[i]] * beast_sets[uniq_sets[j]])
+                )
+            elif i < beast_count and j == beast_count:
+                iqtree_rf.extend(
+                    [similarity[i, j]]
+                    * (beast_sets[uniq_sets[i]] * iqtree_sets[uniq_sets[j]])
+                )
+
+    beast_rf = np.array(beast_rf)
+    iqtree_rf = np.array(iqtree_rf)
+    print((np.mean(iqtree_rf) - np.mean(beast_rf)) / np.std(beast_rf))
+
+    return similarity, z_score
 
 
 def plot_graph(ax, G, colors, sizes, title=None):
@@ -44,12 +172,13 @@ def plot_graph(ax, G, colors, sizes, title=None):
         ax.set_title(title, fontsize=10)
 
 
-def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
+def build_graph(weighted, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
     taxon_names = []
     rb_sets = defaultdict(int)
     beast_sets = defaultdict(int)
     iqtree_sets = defaultdict(int)
     mcc_sets = defaultdict(int)
+    beast_dicts = []
     old2new = {}
     methods = {}
     rev_count = 0
@@ -88,7 +217,13 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
                     rb_sets[
                         frozenset(
                             [
-                                canonicalize_value(n.descendant_bitset)
+                                frozenset(
+                                    (
+                                        n.descendant_bitset.value,
+                                        (~n.descendant_bitset).value,
+                                    )
+                                )
+                                # canonicalize_value(n.descendant_bitset)
                                 for n in tree.nodes
                                 if not n.is_root and not n.is_leaf
                             ]
@@ -110,15 +245,16 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
 
                     tree.make_unrooted()
                     tree.compute_descendant_bitset()
-                    beast_sets[
+                    beast_dict_blens = {
+                        # canonicalize_value(n.descendant_bitset): n.distance
                         frozenset(
-                            [
-                                canonicalize_value(n.descendant_bitset)
-                                for n in tree.nodes
-                                if not n.is_root and not n.is_leaf
-                            ]
-                        )
-                    ] += 1
+                            (n.descendant_bitset.value, (~n.descendant_bitset).value)
+                        ): n.distance
+                        for n in tree.nodes
+                        if not n.is_root and not n.is_leaf
+                    }
+                    beast_dicts.append(beast_dict_blens)
+                    beast_sets[frozenset(beast_dict_blens.keys())] += 1
                     count += 1
                 else:
                     reader.skip_next()
@@ -135,13 +271,15 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
 
         # tree.make_binary()
         tree.compute_descendant_bitset()
-        bitsets = frozenset(
-            [
-                canonicalize_value(n.descendant_bitset)
-                for n in tree.nodes
-                if not n.is_root and not n.is_leaf
-            ]
-        )
+        iqtree_dict_blens = {
+            # canonicalize_value(n.descendant_bitset): n.distance
+            frozenset(
+                (n.descendant_bitset.value, (~n.descendant_bitset).value)
+            ): n.distance
+            for n in tree.nodes
+            if not n.is_root and not n.is_leaf
+        }
+        bitsets = frozenset(iqtree_dict_blens.keys())
         iqtree_sets[bitsets] += 1
         iqtree_count = len(iqtree_sets)
         if bitsets in rb_sets:
@@ -161,15 +299,15 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
 
         tree.make_unrooted()
         tree.compute_descendant_bitset()
-        mcc_sets[
+        mcc_dict_blens = {
+            # canonicalize_value(n.descendant_bitset): n.distance
             frozenset(
-                [
-                    canonicalize_value(n.descendant_bitset)
-                    for n in tree.nodes
-                    if not n.is_root and not n.is_leaf
-                ]
-            )
-        ] += 1
+                (n.descendant_bitset.value, (~n.descendant_bitset).value)
+            ): n.distance
+            for n in tree.nodes
+            if not n.is_root and not n.is_leaf
+        }
+        mcc_sets[frozenset(mcc_dict_blens.keys())] += 1
         print(f"Number of MCC trees: {len(mcc_sets)} ({len(tree)})")
         methods.update(
             {
@@ -178,58 +316,12 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
             }
         )
 
-    n = len(beast_sets) + len(rb_sets) + len(iqtree_sets) + len(mcc_sets)
-    uniq_sets = (
-        list(rb_sets.keys())
-        + list(beast_sets.keys())
-        + list(iqtree_sets.keys())
-        + list(mcc_sets.keys())
-    )
-
-    mat = np.zeros((n, n))
-    metric = RobinsonFouldsMetric()
-
-    beast_rf = []
-    iqtree_rf = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            mat[i, j] = mat[j, i] = metric.compute_from_sets(uniq_sets[i], uniq_sets[j])
-            if i < beast_count and j < beast_count:
-                beast_rf.extend(
-                    [mat[i, j]] * (beast_sets[uniq_sets[i]] * beast_sets[uniq_sets[j]])
-                )
-            elif i < beast_count and j == beast_count:
-                iqtree_rf.extend(
-                    [mat[i, j]] * (beast_sets[uniq_sets[i]] * iqtree_sets[uniq_sets[j]])
-                )
-
-    beast_rf = np.array(beast_rf)
-    iqtree_rf = np.array(iqtree_rf)
-    z_score = (np.mean(iqtree_rf) - np.mean(beast_rf)) / np.std(beast_rf)
-    print(beast_rf.shape, iqtree_rf.shape)
-    print(z_score)
-
-    max_dist = np.max(mat[np.triu_indices_from(mat, k=1)])
-    similarity = 1 - mat / max_dist
-
-    beast_rf = []
-    iqtree_rf = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            if i < beast_count and j < beast_count:
-                beast_rf.extend(
-                    [similarity[i, j]]
-                    * (beast_sets[uniq_sets[i]] * beast_sets[uniq_sets[j]])
-                )
-            elif i < beast_count and j == beast_count:
-                iqtree_rf.extend(
-                    [similarity[i, j]]
-                    * (beast_sets[uniq_sets[i]] * iqtree_sets[uniq_sets[j]])
-                )
-
-    beast_rf = np.array(beast_rf)
-    iqtree_rf = np.array(iqtree_rf)
-    print((np.mean(iqtree_rf) - np.mean(beast_rf)) / np.std(beast_rf))
+    if weighted:
+        similarity, z_score = weighted_rf_matrix(
+            beast_dicts, iqtree_dict_blens, mcc_dict_blens
+        )
+    else:
+        similarity, z_score = rf_matrix(beast_sets, iqtree_sets, mcc_sets, rb_sets)
 
     # Convert to graph
     G = nx.Graph()
@@ -273,6 +365,11 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
     help="Run all dataset",
 )
 @click.option(
+    "--weighted",
+    is_flag=True,
+    help="Use Robinson-Foulds distance weighted by branch lengths",
+)
+@click.option(
     "--load", type=click.Path(exists=True, file_okay=False), help="Load from pickles"
 )
 @click.option(
@@ -282,11 +379,25 @@ def build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic):
 )
 @click.option(
     "--results",
-    type=click.Path(exists=True, file_okay=False, writable=True),
+    type=click.Path(exists=False, file_okay=False, writable=True),
     default="results",
     help="Result folder generated by nextflow",
 )
-def cli(multi, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, out, load, save, results):
+def cli(
+    multi,
+    weighted,
+    beast,
+    iqtree,
+    mcc,
+    rb,
+    rb_burnin,
+    rb_step,
+    dic,
+    out,
+    load,
+    save,
+    results,
+):
     if load and save:
         raise click.UsageError("Options --load and --save cannot be used together.")
 
@@ -300,7 +411,7 @@ def cli(multi, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, out, load, save,
     sizes = {"BEAST": 10, "MCC": 30, "IQ-TREE": 30}
 
     if not multi:
-        G, z = build_graph(beast, iqtree, mcc, rb, rb_burnin, rb_step, dic)
+        G, z = build_graph(weighted, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic)
         fig, ax = plt.subplots(figsize=(10, 10))
         plot_graph(ax, G, colors, sizes)
     else:
@@ -334,7 +445,7 @@ def cli(multi, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, out, load, save,
                 mcc = open(f"{results}/datasets/{ds}/mcc/mcc.tree", "r")
                 dic_csv = None
 
-                G, z = build_graph(beast, iqtree, mcc, None, -1, -1, dic_csv)
+                G, z = build_graph(weighted, beast, iqtree, mcc, None, -1, -1, dic_csv)
                 Gs.append(G)
                 zs.append(z)
 
@@ -368,7 +479,9 @@ def cli(multi, beast, iqtree, mcc, rb, rb_burnin, rb_step, dic, out, load, save,
         for i, idx in enumerate(np.argsort(zs)):
             print(datasets[idx], zs[idx])
             ax = axs[i // 4, i % 4]
-            plot_graph(ax, Gs[idx], colors, sizes, title=datasets[idx])
+            plot_graph(
+                ax, Gs[idx], colors, sizes, title=f"{datasets[idx]}\nZ = {zs[idx]:.2f}"
+            )
 
         axs[3, 3].axis("off")
 
