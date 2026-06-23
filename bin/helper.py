@@ -82,7 +82,7 @@ def renamer(id_):
 @click.option(
     "--tree", "tree_file", type=click.File("r"), required=True, help="tree file"
 )
-@click.option("--rename", default=False)
+@click.option("--rename", is_flag=True, default=False)
 def beast(beast_file, output, tree_file, rename):
     line = next(tree_file)
     is_nexus = line.startswith("#NEXUS")
@@ -92,7 +92,7 @@ def beast(beast_file, output, tree_file, rename):
         with NexusReader(tree_file) as reader:
             tree = reader.next()
     else:
-        with NewickReader(tree) as reader:
+        with NewickReader(tree_file) as reader:
             tree = reader.next()
 
     newick = tree.newick()
@@ -159,7 +159,7 @@ def beast(beast_file, output, tree_file, rename):
     newick_element.text = newick
     root.insert(index, newick_element)
 
-    tree.write(output)
+    tree.write(output, encoding="unicode")
 
 
 @click.command(help="Create date file for LSD or treetime")

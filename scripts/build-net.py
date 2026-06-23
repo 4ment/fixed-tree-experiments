@@ -2,7 +2,6 @@ import os
 import pickle
 from collections import OrderedDict, defaultdict
 from pathlib import Path
-from typing import OrderedDict
 
 import click
 import matplotlib.patches as mpatches
@@ -75,8 +74,10 @@ def weighted_rf_matrix(
     beast_rf = np.array(beast_rf)
     iqtree_rf = np.array(iqtree_rf)
     z_score = (np.mean(iqtree_rf) - np.mean(beast_rf)) / np.std(beast_rf)
-    print(beast_rf.shape, iqtree_rf.shape)
-    print(z_score)
+
+    print(f"BEAST mean RF: {np.mean(beast_rf)} stdev RF: {np.std(beast_rf)}")
+    print(f"IQ-tree mean RF: {np.mean(iqtree_rf)} stdev RF: {np.std(iqtree_rf)}")
+    print(f"Z-score: {z_score}")
 
     max_dist = np.max(mat[np.triu_indices_from(mat, k=1)])
     similarity = 1 - mat / max_dist
@@ -134,8 +135,10 @@ def rf_matrix(
     beast_rf = np.array(beast_rf)
     iqtree_rf = np.array(iqtree_rf)
     z_score = (np.mean(iqtree_rf) - np.mean(beast_rf)) / np.std(beast_rf)
-    print(beast_rf.shape, iqtree_rf.shape)
-    print(z_score)
+
+    print(f"BEAST mean RF: {np.mean(beast_rf)} stdev RF: {np.std(beast_rf)}")
+    print(f"IQ-tree mean RF: {np.mean(iqtree_rf)} stdev RF: {np.std(iqtree_rf)}")
+    print(f"Z-score: {z_score}")
 
     max_dist = np.max(mat[np.triu_indices_from(mat, k=1)])
     similarity = 1 - mat / max_dist

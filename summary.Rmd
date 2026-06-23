@@ -64,6 +64,16 @@ p_hat <- function(A, B) {
 
 mapping_type = c("mcc" = "MCC", "lsd2" = "LSD", "treetime" = "TreeTime",
                  "map"="MSP", "rerooted"="MRC")
+
+my_colors <- c(
+  "MCC" = "#0072B2",  # Blue
+  "MSP" = "#E69F00",  # Orange
+  "MRC" = "#009E73",  # Green
+  "LSD" = "#D55E00",  # Red
+  "TreeTime" = "#CC79A7",  # Purple
+  "Unconstrained" = "#999999"   # Grey
+)
+my_breaks = c("MCC", "MSP", "MRC", "LSD", "TreeTime", "Unconstrained")
 ```
 
 ```{r eval=!params$load_saved_data}
@@ -89,19 +99,20 @@ all_mean = NULL
 all_sd = NULL
 sky_mean = NULL
 sky_sd = NULL
+sky_band = NULL
 p_hats = NULL
 sky_p_hats = NULL
 
 for (dataset in datasets) {
   for (topology in c("unconstrained", "lsd2", "treetime", "map", "mcc", "rerooted")) {
     stem = file.path(results_dir, "datasets", dataset, topology)
-      log.file = file.path(stem, paste0("param_run", "0", 1, ".log"))
+    log.file = file.path(stem, paste0("param_run", "0", 1, ".log"))
     
     df.log <- read_tsv(log.file, skip = 3, show_col_types = FALSE)
     df.log = df.log %>%
       slice(seq(floor(0.5 * n()), n(), by=5)) %>%
       select(-state)
-    
+
     all_mean = df.log %>%
       summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>%
       pivot_longer(cols = everything(),
@@ -117,7 +128,7 @@ for (dataset in datasets) {
                    values_to = "value") %>%
       mutate(dataset = dataset, type = topology) %>%
       bind_rows(all_sd)
-    
+
     if(topology == 'unconstrained'){
       unconstrained_log = df.log
     }
@@ -159,7 +170,21 @@ for (dataset in datasets) {
         ) %>%
         mutate(dataset = dataset, type = topology) %>%
         bind_rows(sky_sd)
-      
+
+      sky_band = sky.log %>%
+        summarise(across(where(is.numeric), list(
+          median = \(x) median(x, na.rm = TRUE),
+          lower  = \(x) quantile(x, 0.025, na.rm = TRUE),
+          upper  = \(x) quantile(x, 0.975, na.rm = TRUE)
+        ))) %>%
+        pivot_longer(
+          cols = everything(),
+          names_to = c("pop", ".value"),
+          names_pattern = "(.*)_(median|lower|upper)$"
+        ) %>%
+        mutate(dataset = dataset, type = topology) %>%
+        bind_rows(sky_band)
+
       if(topology == 'unconstrained'){
         sky_unconstrained_log = sky.log
       }
@@ -169,16 +194,19 @@ for (dataset in datasets) {
           summarise(value = mean(as.numeric(unlist(.)), na.rm = TRUE)) %>%
           mutate(dataset = dataset, type = topology) %>%
           bind_rows(sky_p_hats)
-  }
-}
+      }
+    }
   }
 }
 
 all_mean = all_mean %>% mutate(type = recode(type, !!!mapping_type))
 all_sd = all_sd %>% mutate(type = recode(type, !!!mapping_type))
 sky_mean = sky_mean %>% mutate(type = recode(type, !!!mapping_type))
+sky_band = sky_band %>% mutate(type = recode(type, !!!mapping_type))
 
 save(all_mean, all_sd, sky_mean, sky_sd, file = file.path(results_dir, "summary.RData"))
+
+save(sky_band, file = file.path(results_dir, "skyplot.RData"))
 
 p_hats = p_hats %>% mutate(type = recode(type, !!!mapping_type))
 sky_p_hats = sky_p_hats %>% mutate(type = recode(type, !!!mapping_type))
@@ -189,6 +217,7 @@ save(p_hats, sky_p_hats, file = file.path(results_dir, "phat.RData"))
 ```{r eval=params$load_saved_data}
 load(file.path(results_dir, "summary.RData"))
 load(file.path(results_dir, "phat.RData"))
+load(file.path(results_dir, "skyplot.RData"))
 ```
 
 ```{r}
@@ -309,6 +338,7 @@ df2$Method = factor(df2$Method, levels=c("MCC", "MSP", "MRC", "LSD", "TreeTime")
 
 ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
   geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  scale_color_manual(values = my_colors, breaks=my_breaks) +
   theme_bw() +
   theme(
     panel.grid = element_blank(),
@@ -325,7 +355,7 @@ ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
   ) +
-  labs(y = "Relative error")
+  labs(y = "Relative difference")
 ```
 
 ```{r sup-insensitive}
@@ -337,6 +367,7 @@ df2$Method = factor(df2$Method, levels=c("MCC", "MSP", "MRC", "LSD", "TreeTime")
 ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
   geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
   geom_hline(yintercept=0.5) +
+  scale_color_manual(values = my_colors, breaks=my_breaks) +
   theme_bw() +
   theme(
     panel.grid = element_blank(),
@@ -404,7 +435,7 @@ ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
   ) +
-  labs(y = "Relative error")
+  labs(y = "Relative difference")
 ```
 
 ```{r sensitive}
@@ -416,6 +447,7 @@ ggplot(df2, aes(y = value2, col = Method, x = Dataset)) +
   geom_point(aes(shape = model, group = model), position = position_dodge(width = 0.6)) +
   geom_hline(yintercept=signed_log(0.25), linetype = "dashed") +
   geom_hline(yintercept=signed_log(-0.25),linetype = "dashed") +
+  scale_color_manual(values = my_colors, breaks=my_breaks) +
   theme_bw() +
   theme(
     panel.grid = element_blank(),
@@ -432,7 +464,7 @@ ggplot(df2, aes(y = value2, col = Method, x = Dataset)) +
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
   ) +
-  labs(y = expression("Relative error (signed-log" [e] * " scale)")) +
+  labs(y = expression("Relative difference (signed-log" [e] * " scale)")) +
   scale_y_continuous(
     breaks = signed_log(c(-5, -1, 0, 1, 5, 10, 20, 30)),  # where to place them
     labels = c(-5, -1, 0, 2, 5, 10, 20, 30)               # what to show
@@ -450,10 +482,11 @@ df3$model <- recode(df3$model,
                         "tree" = "Tree")
 
 ggplot(df3, aes(y = value, col = Method, x = Dataset)) +
-  #geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
-  geom_point(aes(shape = model, group = model), position = position_dodge(width = 0.6)) +
+  geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
+  #geom_point(aes(shape = model, group = model), position = position_dodge(width = 0.6)) +
   geom_hline(yintercept=0.5) +
   theme_bw() +
+  scale_color_manual(values = my_colors, breaks=my_breaks) +
   theme(
     panel.grid = element_blank(),
     axis.line = element_line(linewidth = 0.4),
@@ -534,9 +567,12 @@ df2$model = recode_factor(
 df2$Method = factor(df2$Method, levels = c("MCC", "MSP", "MRC", "LSD", "TreeTime"))
 
 ggplot(df2, aes(y = value, x = model, col = Method)) +
-  #geom_jitter(width = 0.2, size = 1, aes(shape = Dataset)) +
-  geom_boxplot() +
-  #geom_jitter(size = 0.5) +
+  geom_boxplot(position = position_dodge(width = 0.75), outlier.shape = NA) +
+  geom_point(
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    alpha = 0.7, size = 1
+  ) +
+  scale_color_manual(values = my_colors, breaks=my_breaks) +
   theme_bw() +
   theme(
     panel.grid = element_blank(),
@@ -554,7 +590,7 @@ ggplot(df2, aes(y = value, x = model, col = Method)) +
     ),
     axis.title.x = element_blank()
   ) +
-  labs(x="Model", y = "Relative error") #+ ggtitle("Relative error of mean")
+  labs(x="Model", y = "Relative difference") #+ ggtitle("Relative error of mean")
 ```
 
 ```{r sup-all}
@@ -574,7 +610,13 @@ df2$Method = factor(df2$Method, levels = c("MCC", "MSP", "MRC", "LSD", "TreeTime
 
 ggplot(df2, aes(y = value, x = model, col = Method)) +
   #geom_jitter(width = 0.2, size = 1, aes(shape = Dataset)) +
-  geom_boxplot() +
+  #geom_boxplot() +
+  geom_boxplot(position = position_dodge(width = 0.75), outlier.shape = NA) +
+  geom_point(
+    position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
+    alpha = 0.7, size = 1
+  ) +
+  scale_color_manual(values = my_colors, breaks=my_breaks) +
   #geom_jitter(size = 0.5) +
   geom_hline(yintercept=0.5) +
   theme_bw() +
@@ -583,8 +625,8 @@ ggplot(df2, aes(y = value, x = model, col = Method)) +
     axis.line = element_line(linewidth = 0.4),
     strip.background = element_blank(),
     panel.border = element_blank(),
-    legend.position = "inside",
-    legend.position.inside = c(0.1, 0.8),
+    #legend.position = "inside",
+    #legend.position.inside = c(0.1, 0.8),
     legend.title = element_blank(),
     legend.background = element_blank(),
     legend.key = element_rect(
@@ -623,7 +665,7 @@ ggplot(df2, aes(y = value, col = Method, x = model)) +
     axis.title.x = element_blank(),
     axis.text.x = element_text(angle = 30, hjust = 1)
   ) +
-  labs(y = "Relative error") +
+  labs(y = "Relative difference") +
   ggtitle("Relative error of standard deviation")
 ```
 
@@ -641,13 +683,16 @@ df.pop = cons %>% full_join(uncons, by = c("dataset", "pop")) %>%
   group_by(type.x, dataset) %>% summarise(sqrt_mean = sqrt(mean(value)), .groups = "drop") %>%
   rename(Method = type.x, RMSRE = sqrt_mean, Dataset = dataset)# %>% filter(RRMSE <100)
 
+df.pop$Method = factor(df.pop$Method, levels=c("MCC", "MSP", "MRC", "LSD", "TreeTime"))
+
 
 ggplot(df.pop, aes(y = RMSRE, col = Method, x = Dataset)) +
   geom_jitter(width = 0.2, size = 1) +
   geom_hline(yintercept=0.25,linetype = "dashed") +
+  scale_color_manual(values = my_colors, breaks=my_breaks) +
   scale_y_log10(breaks = c(0.001,0.01, 0.1, 1, 10, 100),
   labels = c("0.001", "0.01", "0.1", "1", "10", "100")) +
-  labs(y = expression("RMSRE (log" [10] * " scale)")) +
+  labs(y = expression("RMSRD (log" [10] * " scale)")) +
 
   theme_bw() +
   theme(
@@ -674,6 +719,7 @@ df2$Method = factor(df2$Method, levels=c("MCC", "MSP", "MRC", "LSD", "TreeTime")
 ggplot(df2, aes(y=value, col = Method, x = Dataset)) +
   geom_jitter(width = 0.2, size = 1) +
   geom_hline(yintercept=0.5) +
+  scale_color_manual(values = my_colors, breaks=my_breaks) +
   theme_bw() +
   theme(
     panel.grid = element_blank(),
@@ -787,16 +833,6 @@ ggplot(df2, aes(y = value, col = Method, x = Dataset)) +
 
 
 ```{r}
-my_colors <- c(
-  "MCC" = "#0072B2",  # Blue
-  "MSP" = "#E69F00",  # Orange
-  "MRC" = "#009E73",  # Green
-  "LSD" = "#D55E00",  # Red
-  "TreeTime" = "#CC79A7",  # Purple
-  "Unconstrained" = "#999999"   # Grey
-)
-my_breaks = c("MCC", "MSP", "MRC", "LSD", "TreeTime", "Unconstrained")
-
 df_params = df_mean %>% filter(!parameter %in% c("treeLength")) %>% mutate(value=value**2) %>%
   group_by(model,Dataset,Method)%>% summarize(value=mean(value), .groups = "drop") %>%
   mutate(stat="mean")
@@ -891,7 +927,13 @@ yLabeler <- function(x) {
 
 scatter_plot = ggplot(df2, aes(x = Dataset, y = value, color = Method)) +
   #geom_jitter(width = 0.2, size = 1, aes(shape = model)) +
-  geom_point(aes(shape = model, group = model), position = position_dodge(width = 0.5)) +
+  geom_point(aes(shape = model, group = model),
+             #position = position_dodge(width = 0.5)
+             position = position_jitterdodge(
+                dodge.width = 0.6,  # width of dodge
+                jitter.width = 0.35  # width of horizontal jitter
+              )
+             ) +
   # geom_point(
   #    data = data.frame(value = NA, Method = "Unconstrained"),
   #    aes(x = value, y = NA, color = Method),
@@ -940,7 +982,7 @@ scatter_plot = ggplot(df2, aes(x = Dataset, y = value, color = Method)) +
     # geom_rect(data = highlight_fluPb2_wor14, inherit.aes = FALSE,
     #         aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
     #         fill = NA, color = "red", linewidth = 1) +
-  labs(y = "Mean squared relative error")
+  labs(y = "Mean squared relative difference")
   #scale_y_continuous(labels = scales::comma) +
 #annotate("text", x = 10, y = 1.5, label = "Legend for Methods and Models", size = 6, hjust = 0)
 scatter_plot
@@ -1273,3 +1315,126 @@ figure
 #annotate_figure(figure, left = text_grob("Mean effective population size", rot = 90))
 ```
 
+# Skygrid plots
+```{r skyplot-prep}
+# Grid cutoff (time span of the skygrid) and age of the youngest tip per
+# dataset, taken from plot.Rmd's prepare.skygrids(..., cutoff, min, max, youngest)
+# calls. Used to map logPopSize index i (1..n) to calendar year:
+#   year = youngest - cutoff * (i - 1) / (n - 1)
+sky_grid_info = tibble::tribble(
+  ~dataset,         ~cutoff,  ~youngest,
+  "ebov_dud17",         2.0,  2020.327868852459,
+  "ebov_mba21",        1.75,  2020.1284153005465,
+  "fluPb2_wor14",       150,  2011.0,
+  "hiv_far14",           90,  2005.0,
+  "lassaL_kli22",       500,  2019.1780821917807,
+  "mumps_mon21",         25,  2018.0,
+  "rabies_via23",      20.0,  2016.0738,
+  "sars2_can20",        0.5,  2020.327868852459,
+  "sars2_lem21",        0.8,  2020.827868852459,
+  "sars2_pek22",       0.37,  2020.120218579235,
+  "wnv_del20",           19,  2016.6475,
+  "zikv_gru19",         5.0,  2018.0465753424658
+)
+
+sky_band_plot = sky_band %>%
+  filter(grepl("logPopSize", pop)) %>%
+  mutate(
+    grid = as.integer(gsub("\\D", "", pop)),
+    type = recode(type, "unconstrained" = "Unconstrained"),
+    across(c(median, lower, upper), exp)
+  ) %>%
+  group_by(dataset) %>%
+  mutate(n_grid = max(grid)) %>%
+  ungroup() %>%
+  left_join(sky_grid_info, by = "dataset") %>%
+  mutate(x = ifelse(is.na(cutoff),
+                    grid,                                   # fall back to index
+                    youngest - cutoff * (grid - 1) / (n_grid - 1)))
+
+# Median (solid) and 95% credible band (dashed) for one dataset, on a log y axis.
+make_skyband_plot <- function(d) {
+  df_d = filter(sky_band_plot, dataset == d)
+  has_year = all(!is.na(df_d$cutoff))
+  ggplot(df_d, aes(x = x, col = type)) +
+    geom_line(aes(y = median), linewidth = 0.6) +
+    geom_line(aes(y = lower), linetype = "dashed") +
+    geom_line(aes(y = upper), linetype = "dashed") +
+    scale_color_manual(values = my_colors, breaks = my_breaks) +
+    scale_y_log10(breaks = trans_breaks("log10", \(x) 10^x),
+                  labels = trans_format("log10", math_format(10^.x))) +
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      axis.line = element_line(linewidth = 0.4),
+      strip.background = element_blank(),
+      panel.border = element_blank(),
+      legend.title = element_blank(),
+      legend.background = element_blank(),
+      legend.key = element_rect(fill = NA, colour = NA, linewidth = 0.25),
+      axis.text.x = element_text(angle = 30, hjust = 1)
+    ) +
+    xlab(if (has_year) "Year" else "Grid interval") +
+    ylab("Effective population size")
+}
+```
+
+## ebov_dud17
+```{r skyplot-ebov_dud17, fig.width=7, fig.height=4}
+make_skyband_plot("ebov_dud17")
+```
+
+## ebov_mba21
+```{r skyplot-ebov_mba21, fig.width=7, fig.height=4}
+make_skyband_plot("ebov_mba21")
+```
+
+## fluPb2_wor14
+```{r skyplot-fluPb2_wor14, fig.width=7, fig.height=4}
+make_skyband_plot("fluPb2_wor14")
+```
+
+## hiv_far14
+```{r skyplot-hiv_far14, fig.width=7, fig.height=4}
+make_skyband_plot("hiv_far14")
+```
+
+## lassaL_kli22
+```{r skyplot-lassaL_kli22, fig.width=7, fig.height=4}
+make_skyband_plot("lassaL_kli22")
+```
+
+## mumps_mon21
+```{r skyplot-mumps_mon21, fig.width=7, fig.height=4}
+make_skyband_plot("mumps_mon21")
+```
+
+## rabies_via23
+```{r skyplot-rabies_via23, fig.width=7, fig.height=4}
+make_skyband_plot("rabies_via23")
+```
+
+## sars2_can20
+```{r skyplot-sars2_can20, fig.width=7, fig.height=4}
+make_skyband_plot("sars2_can20")
+```
+
+## sars2_lem21
+```{r skyplot-sars2_lem21, fig.width=7, fig.height=4}
+make_skyband_plot("sars2_lem21")
+```
+
+## sars2_pek22
+```{r skyplot-sars2_pek22, fig.width=7, fig.height=4}
+make_skyband_plot("sars2_pek22")
+```
+
+## wnv_del20
+```{r skyplot-wnv_del20, fig.width=7, fig.height=4}
+make_skyband_plot("wnv_del20")
+```
+
+## zikv_gru19
+```{r skyplot-zikv_gru19, fig.width=7, fig.height=4}
+make_skyband_plot("zikv_gru19")
+```
